@@ -1,0 +1,6 @@
+# 忽略 macOS 系統生成的 .DS_Store 檔案
+.DS_Store 
+
+
+__pycache__
+.vscode/
