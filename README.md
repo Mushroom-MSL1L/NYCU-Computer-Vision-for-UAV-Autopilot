@@ -16,4 +16,7 @@ pip install -r requirements.txt
     - Interpolation
     - Edge Detection
 
-    
+- Lab2
+    - Color picture histogram equalization
+    - Optimized Otsu Threshold algorithm 
+    - Connected Component by Two-Pass Algorithm with disjoint set data structure
