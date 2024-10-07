@@ -102,6 +102,8 @@ def camera_calibration (picture_numbers, dist, output_file, save_parameters, imp
         # Exit on 'q' key
         if cv.waitKey(33) & 0xFF == ord('q'): 
             # 30 fps == 33 ms delay between frames
+            cap.release()
+            cv.destroyAllWindows()
             break
 
 if __name__ == '__main__':
