@@ -30,6 +30,22 @@ def self_defined_warp_perspective(M, frame, original_height, original_width):
                 warpped_image[y, x] = pixel_value
     return warpped_image
 
+def get_map_list (lux, luy, rux, ruy, rdx, rdy, ldx, ldy):
+    # get minimum bounding box of embedded space
+    max_x, min_x, max_y, min_y = max(lux, rux, rdx, ldx), min(lux, rux, rdx, ldx), max(luy, ruy, rdy, ldy), min(luy, ruy, rdy, ldy)
+    # only take points of bounded area of embedded space from original image 
+    map_list = []
+    for y in range(min_y, max_y):
+        for x in range(min_x, max_x):
+            at_left_up    = (luy - ldy) / (lux - ldx) * (x - ldx) > y - ldy
+            at_right_up   = (luy - ruy) / (lux - rux) * (x - rux) > y - ruy
+            at_right_down = (ruy - rdy) / (rux - rdx) * (x - rdx) > y - rdy
+            at_left_down  = (ldy - rdy) / (ldx - rdx) * (x - rdx) < y - rdy
+            if at_left_up or at_right_up or at_right_down or at_left_down:
+                continue
+            map_list.append([y, x])
+    return map_list
+
 def get_capture_size():
     cap = cv.VideoCapture(0)
     if not cap.isOpened():
@@ -52,6 +68,7 @@ def wrap_2_picture(image_path, lux, luy, rux, ruy, rdx, rdy, ldx, ldy):
     height, width = frame_size
 
     original_image = cv.imread(image_path)
+    result_image = original_image.copy()
     if original_image is None:
         print("Error: Image not found.")
         return
@@ -65,6 +82,9 @@ def wrap_2_picture(image_path, lux, luy, rux, ruy, rdx, rdy, ldx, ldy):
     # M * captured_corners = embedded_corners
     M = cv.getPerspectiveTransform(captured_corners, embedded_corners)
     print("homography M : \n", M)
+    
+    # get pixel coordinates as mask
+    y_map, x_map = zip(*get_map_list(lux, luy, rux, ruy, rdx, rdy, ldx, ldy))
 
     # Open webcam and show wrapped image
     cap = cv.VideoCapture(0)
@@ -83,9 +103,7 @@ def wrap_2_picture(image_path, lux, luy, rux, ruy, rdx, rdy, ldx, ldy):
         warpped_image = self_defined_warp_perspective(M, frame, original_height, original_width)
 
         # merge the original image and warped frame
-        result_image = original_image.copy()
-        mask = np.any(warpped_image != 0, axis=-1)
-        result_image[mask] = warpped_image[mask]
+        result_image[y_map, x_map] = warpped_image[y_map, x_map]
 
         cv.imshow('frame', result_image)
         if cv.waitKey(33) & 0xFF == ord('q'):
