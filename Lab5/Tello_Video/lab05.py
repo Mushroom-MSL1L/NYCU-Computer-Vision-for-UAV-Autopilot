@@ -10,6 +10,7 @@ def MAX (value, max_value) :
         return max_value
     elif value < -max_value :
         return -max_value
+    return value 
     
 def keyboard(self, key):
     #global is_flying
@@ -61,7 +62,7 @@ def keyboard(self, key):
 """
 test if the drone is linked to the computer
 """
-dictionary = cv2.aruco.Dictionary_get(cv2.aruco.DICT_6X6_250)
+dictionary = cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_250)
 parameters = cv2.aruco.DetectorParameters_create()
 calibration_file = "./calibration_output.xml"
 fs = cv2.FileStorage(calibration_file, cv2.FILE_STORAGE_READ)
@@ -85,9 +86,9 @@ max_speed = 50
 # 2. P : 無人機會停在你設定的距離附近
 # 3. I : 無人機會在設定的距離附近抖動
 # 4. D : 停止抖動
-x_pid   = PID(kP=0.7, kI=0.0001, kD=0.1)
-z_pid   = PID(kP=0.7, kI=0.0001, kD=0.1)
-y_pid   = PID(kP=0.7, kI=0.0001, kD=0.1)
+x_pid   = PID(kP=2, kI=0.1, kD=0.1)
+z_pid   = PID(kP=1.5, kI=0.01, kD=0.1)
+y_pid   = PID(kP=1.5, kI=0.01, kD=0.1)
 yaw_pid = PID(kP=0.7, kI=0.0001, kD=0.1)
 
 x_pid.initialize()
@@ -111,40 +112,48 @@ while (1) :
                 center_x = int(c[:, 0].mean())
                 center_y = int(c[:, 1].mean())
                 
-                t_vec = translation_vectors[i][0]  
-                x, y, z = t_vec[0], t_vec[1], t_vec[2]            
+                x, y, z = translation_vectors[0,0,0], translation_vectors[0,0,1], abs(translation_vectors[0,0,2])          
+                print("x, y, z : ", x, y, z )
+                # rotation_matrix = np.zeros((3, 3))
+                # rotation_matrix = cv2.Rodrigues(rotated_vectors[i][0]) # transform the rotation vector into a rotation matrix
+                # z_axis = np.array([0, 0, 1]) # old z-axis
+                # z_prime = rotation_matrix @ z_axis
+                
+                # z_prime_x = z_prime[0][0] # new z map to x-axis
+                # z_prime_z = z_prime[2][0] # new z map to z-axis
+                # angle_rad = math.atan2(z_prime_z, z_prime_x) # v_vector = np.array([z_prime_x, z_prime_z])
+                # angle_deg = math.degrees(angle_rad)
                 
                 rotation_matrix = np.zeros((3, 3))
-                rotation_matrix = cv2.Rodrigues(rotated_vectors[i][0]) # transform the rotation vector into a rotation matrix
-                z_axis = np.array([0, 0, 1]) # old z-axis
-                z_prime = rotation_matrix @ z_axis
-                
-                z_prime_x = z_prime[0][0] # new z map to x-axis
-                z_prime_z = z_prime[2][0] # new z map to z-axis
-                angle_rad = math.atan2(z_prime_z, z_prime_x) # v_vector = np.array([z_prime_x, z_prime_z])
-                angle_deg = math.degrees(angle_rad)
-                
-                # rotation_matrix = np.zeros((3, 3))
-                # cv2.Rodrigues(rotated_vectors[i], rotation_matrix) # transform the rotation vector into a rotation matrix
-                # yaw_pitch_roll = cv2.RQDecomp3x3(rotation_matrix)[0] # yaw : vertical, pitch : horizontal, roll : perpendicular
-                # yaw = yaw_pitch_roll[1]                
-                
+                cv2.Rodrigues(rotated_vectors[i], rotation_matrix) # transform the rotation vector into a rotation matrix
+                yaw_pitch_roll = cv2.RQDecomp3x3(rotation_matrix)[0] # yaw : vertical, pitch : horizontal, roll : perpendicular
+                yaw = yaw_pitch_roll[1]                
+                print("yaw : ", yaw)
                 
                 ## update speed PID
-                x_update = x - 0
+                x_update = (x * 2 + 6)  
+                print("x_update : ", x_update)
                 x_update = MAX(x_pid.update(x_update, sleep=0), max_speed)
-                y_update = y - 0 
+                print("x_update : ", x_update)
+                y_update = -(y * 3)
+                print("y_update : ", y_update)
                 y_update = MAX(y_pid.update(y_update, sleep=0), max_speed)
-                z_update = z - 0
+                print("y_update : ", y_update)
+                z_update = (z - 50)
+                print("z_update : ", z_update)
                 z_update = MAX(z_pid.update(z_update, sleep=0), max_speed)
-                # yaw_update = yaw * 1
-                yaw_update = angle_deg * 1 
+                print("z_update : ", z_update)
+                yaw_update = yaw * 1
+                # yaw_update = angle_deg * 1 
+                print("yaw_update : ", yaw_update)
                 yaw_update = MAX(yaw_pid.update(yaw_update, sleep=0), max_speed)
-                
-                drone.send_rc_control(0, int (z_update // 2), int (y_update), int (yaw_update))
-                print(x_update, y_update, z_update, yaw_update)
-            text = f"x: {x:.2f}, y: {y:.2f}, z: {z:.2f}"
-            cv2.putText(frame, text, (center_x, center_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)  
+                print("yaw_update : ", yaw_update)
+                print(f"x_update, y_update, z_update, yaw_update : {x_update} \t {y_update} \t {z_update} \t {yaw_update}")
+                print("after update x, y, z") 
+                drone.send_rc_control(int(x_update), int (z_update), int(y_update), int(yaw_update))
+                print(f"x_update, y_update, z_update, yaw_update : {x_update} \t {y_update} \t {z_update} \t {yaw_update}")
+                text = f"x: {x:.2f}, y: {y:.2f}, z: {z:.2f}"
+                cv2.putText(frame, text, (center_x, center_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)  
         except Exception as e :
             pass 
     else : # if no marker is detected, ids is None
