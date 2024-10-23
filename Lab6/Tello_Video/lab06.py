@@ -97,11 +97,10 @@ z_pid.initialize()
 yaw_pid.initialize()
 
 ## Lab6
-right_flag = 0 
-left_flag = 0
 start_time = 0
 wait_time = 0 
-landing_flag = 0 
+task_index= 0 
+timing = 0 
 
 ## midterm 
 crowl_flag = 0 
@@ -112,11 +111,11 @@ while (1) :
     corners, ids, _ = cv2.aruco.detectMarkers(frame, dictionary, parameters=parameters)
     if ids is not None :
         frame = cv2.aruco.drawDetectedMarkers(frame, corners, ids)
-        rotated_vectors, translation_vectors, _ = cv2.aruco.estimatePoseSingleMarkers(corners, 15, intrinsic, distortion)
-        frame = cv2.aruco.drawAxis(frame, intrinsic, distortion, rotated_vectors, translation_vectors, 15)
         if (len(ids) > 0) : 
             print ("ids: ", ids) ##
         try : 
+            rotated_vectors, translation_vectors, _ = cv2.aruco.estimatePoseSingleMarkers(corners, 15, intrinsic, distortion)
+            frame = cv2.aruco.drawAxis(frame, intrinsic, distortion, rotated_vectors, translation_vectors, 15)
             for i in range(len(ids)):
                 c = corners[i][0]
                 center_x = int(c[:, 0].mean())
@@ -147,68 +146,84 @@ while (1) :
                 yaw_update = yaw * 1
                 # yaw_update = angle_deg * 1 
                 
+                print(f"task_index : {task_index}")
                 ## Lab6 parts 
-                if ids[0] == 1 and right_flag == 0 :
-                    if z >= 60 : # before go right
-                        z_update += 10 # 50 - 10 cm
-                    else : # z < 60
-                        right_flag = 1 
-                        
-                if right_flag == 1 : # between id1 and id2 
+                if ids[i] == 1 and task_index == 0 :
+                    if z >= 60 and z != None: # before go right
+                        print("in the first iter", z)
+                        z_update -= 10 # 50 - 10 cm
+                        x_update = MAX(x_pid.update(x_update, sleep=0), max_speed)
+                        y_update = MAX(y_pid.update(y_update, sleep=0), max_speed)
+                        z_update = MAX(z_pid.update(z_update, sleep=0), max_speed)
+                        yaw_update = MAX(yaw_pid.update(yaw_update, sleep=0), max_speed)
+                        drone.send_rc_control(int(x_update), int (z_update), int(y_update), int(yaw_update))
+                    elif z < 60 : # z < 60
+                        task_index += 1 
+                    else:
+                        print("in fuction 1 z is not detected.")
+                        continue
+                elif task_index == 1 : # go right, between id1 and id2 
                     x_speed = 40 # 40 cm
-                    drone.send_rc_control(int(x_speed), 0 ,0 ,0)
-                        
-                if ids[0] == 2 and left_flag == 0 :
-                    right_flag = 0 
-                    if z >= 100 : # before go right
-                        z_update += 10 # 50 - 10 cm
-                    else : # z < 100
-                        left_flag = 1
-                
-                if left_flag == 1 : # between id2 and id3
-                    x_speed = 40 # 40 cm
-                    drone.send_rc_control(int(x_speed), 0 ,0 ,0)
-                    if landing_flag == 0 : 
-                        start_time = time.time()
-                        wait_time = 3
-                        landing_flag = 1 
-                        
-                if (landing_flag == 1) and (time.time() - start_time >= wait_time) : # stop and landing 
-                    left_flag = 0 
+                    x_update = MAX(x_pid.update(x_update, sleep=0), max_speed)
+                    y_update = MAX(y_pid.update(y_update, sleep=0), max_speed)
+                    z_update = MAX(z_pid.update(z_update, sleep=0), max_speed)
+                    yaw_update = MAX(yaw_pid.update(yaw_update, sleep=0), max_speed)
+                    drone.send_rc_control(int(x_speed), int (z_update), int(y_update), int(yaw_update))
+                    # time.sleep( 2 )
+                    if ids[i] == 2 :
+                        task_index += 1 
+                elif ids[i] == 2 and task_index == 2 : # forward to id2
+                    if z >= 60 : 
+                        z_update -= 10 # 50 - 10 cm
+                        x_update = MAX(x_pid.update(x_update, sleep=0), max_speed)
+                        y_update = MAX(y_pid.update(y_update, sleep=0), max_speed)
+                        z_update = MAX(z_pid.update(z_update, sleep=0), max_speed)
+                        yaw_update = MAX(yaw_pid.update(yaw_update, sleep=0), max_speed)
+                        drone.send_rc_control(int(x_update), int (z_update), int(y_update), int(yaw_update))
+                    elif z < 60: # z < 60
+                        task_index += 1 
+                    else:
+                        continue
+                elif task_index == 3 : # go left, between id2 and id3
+                    x_speed = -40 # 40 cm
+                    x_update = MAX(x_pid.update(x_update, sleep=0), max_speed)
+                    y_update = MAX(y_pid.update(y_update, sleep=0), max_speed)
+                    z_update = MAX(z_pid.update(z_update, sleep=0), max_speed)
+                    yaw_update = MAX(yaw_pid.update(yaw_update, sleep=0), max_speed)
+                    drone.send_rc_control(int(x_speed), int (z_update), int(y_update), int(yaw_update))
+
+                    # time.sleep( 3 ) # wait for fly to the left
+                    task_index+= 1 
+                elif task_index == 4 : # stop and landing 
                     drone.land()
                     break
                 
                 ## midtem parts
-                if left_flag == 1 : # between id2 and id3
-                    x_speed = 40 # 40 cm
-                    drone.send_rc_control(int(x_speed), 0 ,0 ,0)
+                # if left_flag == 1 : # between id2 and id3
+                #     x_speed = 40 # 40 cm
+                #     drone.send_rc_control(int(x_speed), 0 ,0 ,0)
                 
-                if ids[0] == 3 and crowl_flag == 0 :
-                    left_flag = 0 
-                    if z >= 50 : # before go down
-                        z_update += 20 # 50 - 20 cm
-                    else : # z < 50
-                        start_time = time.time()
-                        wait_time = 3
-                        crowl_flag = 1
+                # if ids[i] == 3 and crowl_flag == 0 :
+                #     left_flag = 0 
+                #     if z >= 50 : # before go down
+                #         z_update += 20 # 50 - 20 cm
+                #     else : # z < 50
+                #         start_time = time.time()
+                #         wait_time = 3
+                #         crowl_flag = 1
                 
-                if (crowl_flag == 1) and (time.time() - start_time >= wait_time): # after id3
-                    y_speed = 40 # 40 cm
-                    z_speed = 20 # 20 cm
-                    yaw_speed = 10
-                    drone.send_rc_control(0, int(z_speed), int(y_speed), int(yaw_speed))
+                # if (crowl_flag == 1) and (time.time() - start_time >= wait_time): # after id3
+                #     y_speed = 40 # 40 cm
+                #     z_speed = 20 # 20 cm
+                #     yaw_speed = 10
+                #     drone.send_rc_control(0, int(z_speed), int(y_speed), int(yaw_speed))
                     
-                if (crowl_flag == 1) and (time.time() - start_time >= wait_time): # before orbit
+                # if (crowl_flag == 1) and (time.time() - start_time >= wait_time): # before orbit
                     
                 
                 ## using PID to control the speed
-                x_update = MAX(x_pid.update(x_update, sleep=0), max_speed)
-                y_update = MAX(y_pid.update(y_update, sleep=0), max_speed)
-                z_update = MAX(z_pid.update(z_update, sleep=0), max_speed)
-                yaw_update = MAX(yaw_pid.update(yaw_update, sleep=0), max_speed)
-                
+
                 print("after update x, y, z") 
-                drone.send_rc_control(int(x_update), int (z_update), int(y_update), int(yaw_update))
                 print(f"x_update, y_update, z_update, yaw_update : {x_update} \t {y_update} \t {z_update} \t {yaw_update}")
                 text = f"x: {x:.2f}, y: {y:.2f}, z: {z:.2f}"
                 cv2.putText(frame, text, (center_x, center_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)  
