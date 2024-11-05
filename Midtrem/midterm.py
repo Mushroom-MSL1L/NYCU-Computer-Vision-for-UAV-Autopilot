@@ -86,8 +86,8 @@ max_speed = 50
 # 2. P : 無人機會停在你設定的距離附近
 # 3. I : 無人機會在設定的距離附近抖動
 # 4. D : 停止抖動
-x_pid   = PID(kP=2, kI=0.1, kD=0.1)
-z_pid   = PID(kP=1.5, kI=0.01, kD=0.1)
+x_pid   = PID(kP=0.7, kI=0.01, kD=0.1)
+z_pid   = PID(kP=0.7, kI=0.01, kD=0.1)
 y_pid   = PID(kP=1.5, kI=0.01, kD=0.1)
 yaw_pid = PID(kP=0.7, kI=0.0001, kD=0.1)
 
@@ -113,13 +113,20 @@ right_threshold = 20
 not_find_id1 = 1   # default 1
 not_find_id3 = 1   # default 1
 not_find_id4 = 1   # default 1
+not_find_id5 = 1   # default 1
 not_find_id6 = 1   # default 1
+
+stable_counter5 = 0
+stable_threshold5 = 100
+
+stable_counter6 = 0
+stable_threshold6 = 500
 
 while (1) :
     frame = frame_read.frame
     corners, ids, _ = cv2.aruco.detectMarkers(frame, dictionary, parameters=parameters)
     print(f"task_index : {task_index}")
-    print(f"not_find_id1 : {not_find_id1}, not_find_id4 : {not_find_id4}, not_find_id6 : {not_find_id6}")
+    print(f"not_find_id1 : {not_find_id1}, not_find_id3 : {not_find_id3},\n not_find_id4 : {not_find_id4}, not_find_id5 : {not_find_id5}, not_find_id6 : {not_find_id6}")
     print("battery: ", drone.get_battery())
     # if ids is not None and has_foward == 1 :
     if ids is not None :
@@ -147,7 +154,7 @@ while (1) :
                 x_update = (x * 2 + 6)  # + is right, - is left
                 y_update = -(y * 3)     # + is down, - is up
                 z_update = (z - 50)     # + is forward, - is backward
-                yaw_update = yaw * 1
+                yaw_update = yaw * 1 - 4
                 # yaw_update = angle_deg * 1 
                 
                 ## original Lab6 parts 
@@ -172,7 +179,7 @@ while (1) :
                             drone.send_rc_control(24, 0, 0, 0)
                             time.sleep(0.4)
                 elif ids[i] == 2 and task_index == 1 : # forward to id2
-                    if z >= 50 : 
+                    if z >= 55 : 
                         z_update += 15 # 50 - 15 cm
                         x_update = MAX(x_pid.update(x_update, sleep=0), max_speed)
                         y_update = MAX(y_pid.update(y_update, sleep=0), max_speed)
@@ -182,23 +189,27 @@ while (1) :
                     else : # z < 50
                         ## go left, between id2 and id3 
                         task_index += 1 
-                        for ii in range (5) :
-                            drone.send_rc_control(-32, 0, 0, 0)
+                        for ii in range (4) :
+                            drone.send_rc_control(-30, 0, 0, 0)
                             time.sleep(0.5)
                             
                         ## midterm parts 
                         ## go forward, between id2 and id3 
-                        for ii in range (5) :
-                            drone.send_rc_control(0, 25, -30, 0)
+                        for ii in range (4) :
+                            drone.send_rc_control(0, 25, -40, 0)
                             time.sleep(0.5)
+                        x_pid.initialize()
+                        y_pid.initialize()
+                        z_pid.initialize()
+                        yaw_pid.initialize()
                 ## midtem parts
-                elif ids[i] == 1 and task_index == 2 : # forward to id3
+                elif ids[i] == 3 and task_index == 2 : # forward to id3
                     not_find_id3 = 0 
                     if z is None : ## slowly forward 
                         for ii in range (1) :
-                            drone.send_rc_control(0, 20, 0, 0)
+                            drone.send_rc_control(0, 15, 0, 0)
                             time.sleep(0.4)
-                    if z >= 40 : 
+                    if z >= 55 : 
                         z_update += 20 # 50 - 20 cm
                         x_update = MAX(x_pid.update(x_update, sleep=0), max_speed)
                         y_update = MAX(y_pid.update(y_update, sleep=0), max_speed)
@@ -208,60 +219,75 @@ while (1) :
                     else : # z < 50
                         ## go down, after id3 
                         task_index += 1 
+                        drone.send_rc_control(0, 0, 0, 0)
                         for ii in range (6) :
                             drone.send_rc_control(0, 0, -80, 0)
                             time.sleep(0.5)
                         ## go forward, after id3 
+                        drone.send_rc_control(0, 0, 0, 0)
                         for ii in range (7) :
-                            drone.send_rc_control(0, 50, 0, 0)
+                            drone.send_rc_control(5, 50, 0, 0)
                             time.sleep(0.5)
                         drone.send_rc_control(0, 0, 0, 0)
                 elif ids[i] == 0 and task_index == 3 and not_find_id4 : # follow people
+                    z_update -= 0 # 50 + 10 cm
                     x_update = MAX(x_pid.update(x_update, sleep=0), max_speed)
                     y_update = MAX(y_pid.update(y_update, sleep=0), max_speed)
                     z_update = MAX(z_pid.update(z_update, sleep=0), max_speed)
                     yaw_update = MAX(yaw_pid.update(yaw_update, sleep=0), max_speed)
                     drone.send_rc_control(int(x_update), int (z_update), int(y_update), int(yaw_update))
-                
-                elif ids[i] == 4 and task_index == 3 : # forward to id4
-                    not_find_id4 = 0
-                    if z >= 50 : 
-                        z_update += 20 # 50 - 10 cm
+                elif ids[i] == 4 and task_index == 3 and not_find_id4 : # id4 is in the certain place
+                    if z < 160 : 
+                        not_find_id4 = 0 
+                elif ids[i] == 4 and task_index == 3 and not_find_id4 == 0: # forward to id4
+                    if z >= 60 : 
+                        z_update += 10 # 50 - 10 cm
                         x_update = MAX(x_pid.update(x_update, sleep=0), max_speed)
                         y_update = MAX(y_pid.update(y_update, sleep=0), max_speed)
                         z_update = MAX(z_pid.update(z_update, sleep=0), max_speed)
                         yaw_update = MAX(yaw_pid.update(yaw_update, sleep=0), max_speed)
                         drone.send_rc_control(int(x_update), int (z_update), int(y_update), int(yaw_update))
-                    else : # z < 50
-                        ## go rotate to right 
+                    else : # z < 60
+                        ## go rotate to right
                         task_index += 1 
-                        for ii in range (4) :
-                            drone.send_rc_control(0, 0, 0, -20)
-                            time.sleep(0.5)
+                        for  ii in range (7) : 
+                            drone.send_rc_control(0, 0, 0, 48) # + is rotate right
+                            time.sleep(0.4)
+                        x_pid.initialize()
+                        y_pid.initialize()
+                        z_pid.initialize()
+                        yaw_pid.initialize()
                 elif ids[i] == 5 and task_index == 4 : # forward to id5
-                    if z >= 45 : 
+                    not_find_id5 = 0 
+                    if z >= 50 or x >= 5 or x <= -5 or y >= 5 or y <= -5 : 
+                        stable_counter5 += 1
                         z_update += 15 # 50 - 15 cm
                         x_update = MAX(x_pid.update(x_update, sleep=0), max_speed)
                         y_update = MAX(y_pid.update(y_update, sleep=0), max_speed)
                         z_update = MAX(z_pid.update(z_update, sleep=0), max_speed)
                         yaw_update = MAX(yaw_pid.update(yaw_update, sleep=0), max_speed)
                         drone.send_rc_control(int(x_update), int (z_update), int(y_update), int(yaw_update))
-                    else : # z < 45
+                    if z < 50 and stable_counter5 > stable_threshold5 : # z < 50
                         ## go left 
                         task_index += 1 
                         ## moving code is below 
-                elif ids[i] == 6 and task_index == 4 : # land by id6
+                elif ids[i] == 6 and task_index == 5 : # land by id6
                     not_find_id6 = 0 
-                    if z >= 45 : 
-                        z_update += 5 # 50 - 5 cm
+                    if z < 120 or x >= 5 or x <= -5 or y >= 5 or y <= -5 : 
+                        z_update -= 70 # 50 + 70 cm
+                        yaw_update += 6
+                        stable_counter6 += 1
                         x_update = MAX(x_pid.update(x_update, sleep=0), max_speed)
                         y_update = MAX(y_pid.update(y_update, sleep=0), max_speed)
                         z_update = MAX(z_pid.update(z_update, sleep=0), max_speed)
                         yaw_update = MAX(yaw_pid.update(yaw_update, sleep=0), max_speed)
                         drone.send_rc_control(int(x_update), int (z_update), int(y_update), int(yaw_update))
-                    else : # z < 45
+                    if z >= 120 and stable_counter6 > stable_threshold6  : # z >= 120
                         ## landing end
                         task_index += 1 
+                        for ii in range (1) :
+                            drone.send_rc_control(0, 0, 0, 0)
+                            time.sleep(0.4)
                         drone.land()
                     ### end of midterm 
                 ## using PID to control the speed
@@ -276,6 +302,7 @@ while (1) :
             pass 
     ### end of ids is none 
     elif drone.is_flying and not_find_id1 and task_index == 0 :
+        ### before find id1
         print("height_counter = ", height_counter)
         if height_counter > height_threshold : # too height
             up_or_down = 1
@@ -298,17 +325,19 @@ while (1) :
             right_or_left = 0 
         if right_or_left == 0 : ## go right 
             right_counter += 1 
-            drone.send_rc_control(15, 0, 0, 0)
-            time.sleep(0.4)
+            drone.send_rc_control(10, 0, 0, 0)
+            time.sleep(0.3)
         else : ## go left
             right_counter -= 1 
             drone.send_rc_control(-15, 0, 0, 0)
-            time.sleep(0.4)
+            time.sleep(0.2)
+    # elif drone.is_flying and not_find_id5 and task_index == 4 : 
+    #     drone.send_rc_control(0, 0, 0, 25) # + is rotate right
+    #     time.sleep(0.3)
     elif drone.is_flying and not_find_id6 and task_index == 5 :
         ### between id5 and id6
-        for ii in range (2) :
-            drone.send_rc_control(-20, 0, 0, 0)
-            time.sleep(0.5)
+        drone.send_rc_control(-25, 0, 0, 0)
+        time.sleep(0.3)
     else : ## if no marker is detected, ids is None
         drone.send_rc_control(0, 0, 0, 0)
     key = cv2.waitKey(1)
