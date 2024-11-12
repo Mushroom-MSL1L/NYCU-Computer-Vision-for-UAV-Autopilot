@@ -27,3 +27,28 @@ pip install -r requirements.txt
     - Wrap perspective transformation for real time camera capture
         - Camera will be mapped to the embedded space of the image
         - Utilizing homography matrix.
+
+- Lab4
+    - Marker detection
+        - Show the detected markers on the image
+        - Show distance between markers and the camera
+
+- Lab5
+    - Utilize PID to control the drone
+        - Implement the PID controller and keyboard controller for the drone
+        - PID controller will help adjust speed to reach the marker
+
+- Lab6
+    - Implement the drone autopilot
+        - Go to the marker
+        - Go right
+        - Go to the second marker
+        - Go left
+        - Land
+
+- Midterm
+    - Implement the drone autopilot
+        - Marker tracing 
+        - Marker following
+        - Auto rotation, forward, left, right, up, down
+        - Auto Land
