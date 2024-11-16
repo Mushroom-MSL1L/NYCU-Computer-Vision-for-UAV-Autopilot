@@ -52,3 +52,9 @@ pip install -r requirements.txt
         - Marker following
         - Auto rotation, forward, left, right, up, down
         - Auto Land
+
+- Lab7
+    - Object detection
+        - Using HOG to detect pedestrian
+        - Using Haar cascade to detect face
+        - Solve PnP with 4 points to get the distance between camera and object
