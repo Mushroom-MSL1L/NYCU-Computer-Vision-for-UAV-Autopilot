@@ -82,14 +82,6 @@ def detect_face_and_people(filename, face_objectPoints, people_objectPoints):
         #         )
         for (rect, weight) in zip(pedestrian_rects, weights):
             x, y, w, h = rect
-            if weight > 0.8:
-                cv2.rectangle(
-                    frame, 
-                    (int(x),   int(y)),       # left-top
-                    (int(x+w), int(y+h)),     # right-bottom
-                    color=(0, 0, 255),
-                    thickness=4
-                )
             people_imagePoints = np.array([
                 # left-top, right-top, right-bottom, left-bottom
                 [x, y], [x+w, y], [x+w, y+h], [x, y+h]
@@ -102,8 +94,18 @@ def detect_face_and_people(filename, face_objectPoints, people_objectPoints):
                 distortion
             )
             estimated_distance = tvec[2]
+            if estimated_distance < 200 or estimated_distance > 800 :
+                continue
+            if weight > 0.8:
+                cv2.rectangle(
+                    frame, 
+                    (int(x),   int(y)),       # left-top
+                    (int(x+w), int(y+h)),     # right-bottom
+                    color=(0, 0, 255),
+                    thickness=4
+                )
             text = "People distance: " + str(np.round(estimated_distance * 0.01, 4)) + " m"
-            cv2.putText(frame, text, (0,150), cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 0, 255), 8, cv2.LINE_AA)
+            cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 4, cv2.LINE_AA)
         
         
         face_rects = face_cascade.detectMultiScale(
@@ -114,14 +116,9 @@ def detect_face_and_people(filename, face_objectPoints, people_objectPoints):
             minSize         #設定數據搜尋的最小尺寸 ，如 minSize=(40,40)
         )
         
+        face_index_mask = []
+        
         for (x, y, w, h) in face_rects:
-            cv2.rectangle(
-                frame, 
-                (int(x),   int(y)),        # upper left
-                (int(x+w), int(y+h)),    # lower right
-                color=(0, 255, 0),
-                thickness=2
-            )
             face_imagePoints = np.array([
                 # left-top, right-top, right-bottom, left-bottom
                 [x, y], [x+w, y], [x+w, y+h], [x, y+h]
@@ -133,6 +130,15 @@ def detect_face_and_people(filename, face_objectPoints, people_objectPoints):
                 distortion
             )
             estimated_distance = tvec[2]
+            if estimated_distance > 200 :
+                continue
+            cv2.rectangle(
+                frame, 
+                (int(x),   int(y)),        # upper left
+                (int(x+w), int(y+h)),    # lower right
+                color=(0, 255, 0),
+                thickness=2
+            )
             text = "Face distance: " + str(np.round(estimated_distance, 4)) + " cm"
             cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
 
@@ -150,8 +156,8 @@ if __name__ == '__main__':
         # left-top, right-top, right-bottom, left-bottom
         [0, 0, 0], [face_width, 0, 0], [face_width, face_width, 0], [0, face_width, 0]
     ], dtype=np.float32)
-    body_width = 60 * 1.8   # cm of body width,     real width * ratio of box
-    body_height = 170 * 1.2 # cm of body height     real height * ratio of box
+    body_width = 55 * 1.8   # cm of body width,     real width * ratio of box
+    body_height = 163 * 1.2 # cm of body height     real height * ratio of box
     people_objectPoints = np.array([
         # left-top, right-top, right-bottom, left-bottom
         [0, 0, 0], [body_width, 0, 0], [body_width, body_height, 0], [0, body_height, 0]
