@@ -8,6 +8,6 @@ names: ['carna', 'melody']
 roboflow:
   workspace: uavlabel
   project: uav_lab08
-  version: 1
+  version: 4
   license: MIT
-  url: https://universe.roboflow.com/uavlabel/uav_lab08/dataset/1
+  url: https://universe.roboflow.com/uavlabel/uav_lab08/dataset/4

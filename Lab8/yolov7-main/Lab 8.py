@@ -9,7 +9,7 @@ from utils.datasets import letterbox
 from utils.general import non_max_suppression_kpt, scale_coords
 from utils.plots import plot_one_box
 
-WEIGHT = r'.\runs\train\yolov7-lab083\weights\best.pt'
+WEIGHT = r'.\runs\train\yolov7-lab08\weights\best.pt'
 input_video_path = '../Lab_08_Test.mp4'
 output_video_path = '../output_video.mp4'
 device = "cuda" if torch.cuda.is_available() else "cpu"
