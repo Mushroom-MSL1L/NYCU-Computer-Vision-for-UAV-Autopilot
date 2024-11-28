@@ -6,6 +6,7 @@
 # install all the required python packages
 pip install -r requirements.txt
 ```
+* pytorch [link](https://pytorch.org/get-started/locally/)
 
 # Labs 
 - Lab1

@@ -1,0 +1,13 @@
+train: ./data/train/images
+val: ./data/valid/images
+test: ./data/test/images
+
+nc: 2
+names: ['carna', 'melody']
+
+roboflow:
+  workspace: uavlabel
+  project: uav_lab08
+  version: 4
+  license: MIT
+  url: https://universe.roboflow.com/uavlabel/uav_lab08/dataset/4
