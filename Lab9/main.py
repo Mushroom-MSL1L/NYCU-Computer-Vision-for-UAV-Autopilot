@@ -94,30 +94,36 @@ def vertical_line_tracing (drone, pattern, move_speed, sleep_time) :
     # x, z, y
     # move_speed > 0 : means toward up
     # move_speed < 0 : means toward down
+    absolute_speed = abs(move_speed)
+    if np.equal(pattern, np.array([[1, 1, 1], [1, 1, 1], [1, 1, 1]])).all() :
+        ## too close
+        drone.send_rc_control(0, -absolute_speed, 0, 0)
+        time.sleep(sleep_time)
+        return "ver : too close"
     if np.all(np.equal(pattern3, [0, 1, 0])):
         drone.send_rc_control(0, 0, move_speed, 0)
         time.sleep(sleep_time)
         return "ver : up"
     elif np.all(np.equal(pattern3, [0, 0, 1])):
-        drone.send_rc_control(move_speed, 0, 0, 0)
+        drone.send_rc_control(absolute_speed//2, 0, 0, 0)
         time.sleep(sleep_time)
         return "ver : right"
     elif np.all(np.equal(pattern3, [1, 0, 0])):
-        drone.send_rc_control(-move_speed, 0, 0, 0)
+        drone.send_rc_control(-absolute_speed//2, 0, 0, 0)
         time.sleep(sleep_time)
         return "ver : left"
     elif np.all(np.equal(pattern3, [0, 1, 1])):
-        drone.send_rc_control(move_speed, 0, 0, 0)
+        drone.send_rc_control(absolute_speed//2, 0, move_speed//2, 0)
         time.sleep(sleep_time//2)
         return "ver : little right"
     elif np.all(np.equal(pattern3, [1, 1, 0])):
-        drone.send_rc_control(-move_speed, 0, 0, 0)
+        drone.send_rc_control(-absolute_speed//2, 0, move_speed//2, 0)
         time.sleep(sleep_time//2)
         return "ver : little left"
     elif np.all(np.equal(pattern3, [0, 0, 0])):
         return "ver : 0, 0, 0"
     elif np.all(np.equal(pattern3, [1, 1, 1])):
-        drone.send_rc_control(0, 0, move_speed, 0)
+        drone.send_rc_control(0, 0, move_speed//2, 0)
         time.sleep(sleep_time)
         return "ver : 1, 1, 1"
     else :
@@ -126,6 +132,13 @@ def vertical_line_tracing (drone, pattern, move_speed, sleep_time) :
 def horizontal_right_line_tracing(drone, pattern, move_speed, sleep_time):
     pattern3 = np.logical_or.reduce([pattern[0], pattern[1], pattern[2]], axis=1)
     print("pattern3 : ", pattern3)
+    
+    absolute_speed = abs(move_speed)
+    if np.equal(pattern, np.array([[1, 1, 1], [1, 1, 1], [1, 1, 1]])).all() :
+        ## too close
+        drone.send_rc_control(0, -absolute_speed, 0, 0)
+        time.sleep(sleep_time)
+        return "ver : too close"
 
     # x, z, y
     if np.all(np.equal(pattern3, [0, 1, 0])):
@@ -160,6 +173,13 @@ def horizontal_right_line_tracing(drone, pattern, move_speed, sleep_time):
 def horizontal_left_line_tracing(drone, pattern, move_speed, sleep_time):
     pattern3 = np.logical_or.reduce([pattern[0], pattern[1], pattern[2]], axis=1)
     print("pattern3 : ", pattern3)
+
+    absolute_speed = abs(move_speed)
+    if np.equal(pattern, np.array([[1, 1, 1], [1, 1, 1], [1, 1, 1]])).all() :
+        ## too close
+        drone.send_rc_control(0, -absolute_speed, 0, 0)
+        time.sleep(sleep_time)
+        return "ver : too close"
 
     # x, z, y
     if np.all(np.equal(pattern3, [0, 1, 0])):
@@ -218,7 +238,7 @@ max_speed = 50
 # 2. P : 無人機會停在你設定的距離附近
 # 3. I : 無人機會在設定的距離附近抖動
 # 4. D : 停止抖動
-x_pid   = PID(kP=0.6, kI=0.0001, kD=0.1)
+x_pid   = PID(kP=0.72, kI=0.0001, kD=0.5)
 z_pid   = PID(kP=0.7, kI=0.0001, kD=0.1)
 y_pid   = PID(kP=0.7, kI=0.0001, kD=0.1)
 yaw_pid = PID(kP=0.7, kI=0.0001, kD=0.1)
@@ -231,16 +251,19 @@ yaw_pid.initialize()
 task_index = -1     # default -1
 find_id = 0         # default 0
 threshold = 100     # range 0~255, for 黑白圖片
-thres_rate = 0.5    # range 0~1, for 九宮格
+thres_rate = 0.2    # range 0~1, for 九宮格
 go_back_id1 = 0     # default 0
 
 move_speed = 20 
 sleep_time = 0.1
 
-## for id1
+## for first id 
+first_id = 2 
 height_counter = 0       # default 0 
 up_or_down = 0           # default 0 means go up 
 height_threshold = 150
+stable_counter = 0
+stable_threshold = 50
 
 while (1) :
     frame = frame_read.frame
@@ -260,6 +283,7 @@ while (1) :
     binary01 = dilation // 255
     pattern = get_pattern(binary01, thres_rate)
     text = "pattern: \n" + str(pattern[0]) + "\n" + str(pattern[1]) + "\n" + str(pattern[2])
+    print(text)
     cv2.putText(frame, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
 
     
@@ -287,31 +311,35 @@ while (1) :
                 
                 ## number calibration on the drone detected coordinates
                 x_update = (x * 2 + 6)  # + is right, - is left
-                y_update = -y     # + is down, - is up
+                y_update = -y + 10    # + is down, - is up
                 z_update = (z - 50) + 15    # + is forward, - is backward
-                yaw_update = yaw * 1
+                yaw_update = yaw * 1 
                 # yaw_update = angle_deg * 1 
                 
                 ## original Lab6 parts 
-                if ids[i] == 0 and task_index == -1 :
+                if ids[i] == first_id and task_index == -1 :
                     find_id = 1
                     if z is None : ## slowly forward
                         for ii in range (1) :
                             drone.send_rc_control(0, 20, 0, 0)
                             time.sleep(0.4)
-                    if z >= 35 or y < -10 or 10 < y : # before go right for line
-                        z_update += 20 # 50 - 20 cm = 30
+                    if z >= 40 or z <= 32 or y < -10 or 10 < y : # before go right for line
+                        z_update += 15 # 50 - 15 cm = 35
                         x_update = MAX(x_pid.update(x_update, sleep=0), max_speed)
                         y_update = MAX(y_pid.update(y_update, sleep=0), max_speed)
                         z_update = MAX(z_pid.update(z_update, sleep=0), max_speed)
                         yaw_update = MAX(yaw_pid.update(yaw_update, sleep=0), max_speed)
                         drone.send_rc_control(int(x_update), int (z_update / 2), int(y_update / 2), int(yaw_update))
                     else : # z < 35  
+                        print("stable_counter : ", stable_counter)
+                        if stable_counter < stable_threshold :
+                            stable_counter += 1
+                            continue
                         ## go right for line
                         task_index += 1 
-                        drone.send_rc_control(15, 0, 0, 0)
+                        drone.send_rc_control(15, 5, 0, 0)
                         time.sleep(1.5)
-                if ids[i] == 0 and go_back_id1 == 1 :
+                if ids[i] == first_id and go_back_id1 == 1 :
                     ## lane before code
                     drone.land()
                     ### end of lab9 trace 
@@ -328,20 +356,22 @@ while (1) :
     ### end of ids is none 
     elif drone.is_flying and find_id == 0 :
         print("height_counter = ", height_counter)
+        ### adjust the height for the first id 
         if height_counter > height_threshold : # too height
             up_or_down = 1
         elif height_counter < 0 : # too low
             up_or_down = 0 
         if up_or_down == 0 : ## up 
             height_counter += 1 
-            drone.send_rc_control(0, 0, 15, 0)
-            time.sleep(0.4)
+            drone.send_rc_control(0, 0, 25, 0)
+            time.sleep(0.2)
         else : ## down
             height_counter -= 1 
-            drone.send_rc_control(0, 0, -15, 0)
-            time.sleep(0.4)
+            drone.send_rc_control(0, 0, -25, 0)
+            time.sleep(0.2)
     elif  find_id == 1 :
         if task_index == 0 :
+            ## intentionally stop
             task_index += 1
             drone.send_rc_control(0, 0, 0, 0)
         elif task_index == 1 : 
@@ -349,26 +379,41 @@ while (1) :
             state = horizontal_right_line_tracing(drone, pattern, move_speed, sleep_time)
             if right_empty(pattern) :
                 task_index += 1
+                ## forcely go up
+                drone.send_rc_control(0, 0, 30, 0)
+                time.sleep(1.5)
         elif task_index == 2 : 
             # go up
             state = vertical_line_tracing(drone, pattern, move_speed, sleep_time)   
             if up_empty(pattern) :
-                task_index += 1            
+                task_index += 1    
+                ## forcely go right
+                drone.send_rc_control(20, 0, 0, 0)
+                time.sleep(1.5)
         elif task_index == 3 : 
             # go right
             state  = horizontal_right_line_tracing(drone, pattern, move_speed, sleep_time)
             if right_empty(pattern) :
-                task_index += 1            
+                task_index += 1    
+                ## forcely go up 
+                drone.send_rc_control(0, 0, 20, 0)
+                time.sleep(1.5)
         elif task_index == 4 : 
             # go up
             state = vertical_line_tracing(drone, pattern, move_speed, sleep_time)
             if up_empty(pattern) :
                 task_index += 1
+                ## forcely go left
+                drone.send_rc_control(-20, 0, 0, 0)
+                time.sleep(1.5)
         elif task_index == 5 : 
             # go left
-            state = horizontal_left_line_tracing(drone, pattern, move_speed, sleep_time)
+            state = horizontal_left_line_tracing(drone, pattern, move_speed-5, sleep_time)
             if left_empty(pattern) :
                 task_index += 1
+                ## forcely go down
+                drone.send_rc_control(0, 0, -20, 0)
+                time.sleep(1.5)
         elif task_index == 6 : 
             # go down
             # move_speed should be negative
