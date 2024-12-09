@@ -12,6 +12,7 @@ from models.experimental import attempt_load
 from utils.datasets import letterbox
 from utils.general import non_max_suppression_kpt, scale_coords
 from utils.plots import plot_one_box
+import random 
 
 dictionary = cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_250)
 parameters = cv2.aruco.DetectorParameters_create()
@@ -34,6 +35,48 @@ def calibrate():
 def battery_dis(drone):
     battery = drone.get_battery()
     print("\n!! Now battery: {}\n".format(battery))
+
+def detect_face(frame, face_objectPoints, intrinsic, distortion):
+    face_cascade = cv2.CascadeClassifier('Haarcascade_Frontal_Face.xml')
+    ScaleFactor = 1.1
+    minNeighbers = 20
+    minSize = (30, 30)
+    estimated_distance = -1 
+
+    gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    blurred_frame = cv2.GaussianBlur(gray_frame, (5, 5), 0)
+    face_rects = face_cascade.detectMultiScale(
+        frame,
+        ScaleFactor,    #每次搜尋方塊減少的比例
+        minNeighbers,   #每個目標至少檢測到幾次以上，才可被認定是真數據。
+        0,
+        minSize         #設定數據搜尋的最小尺寸 ，如 minSize=(40,40)
+    )
+            
+    for (x, y, w, h) in face_rects:
+        face_imagePoints = np.array([
+            # left-top, right-top, right-bottom, left-bottom
+            [x, y], [x+w, y], [x+w, y+h], [x, y+h]
+        ], dtype=np.float32)
+        _, _, tvec = cv2.solvePnP(
+            face_objectPoints,
+            face_imagePoints,
+            intrinsic, 
+            distortion
+        )
+        estimated_distance = tvec[2]
+        if estimated_distance > 200 :
+            continue
+        cv2.rectangle(
+            frame, 
+            (int(x),   int(y)),      # upper left
+            (int(x+w), int(y+h)),    # lower right
+            color=(0, 255, 0),
+            thickness=2
+        )
+        text = "Face distance: " + str(np.round(estimated_distance, 4)) + " cm"
+        cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+    return frame, estimated_distance
 
 def distinguish_doll(frame):
 def load_model():
@@ -62,6 +105,12 @@ def main():
     drone.connect()
     drone.streamon()
     intrinsic, distortion = calibrate()
+    face_width = 20     # cm of real face width
+    face_height = 20    # cm of real face height
+    face_objectPoints = np.array([
+        # left-top, right-top, right-bottom, left-bottom
+        [0, 0, 0], [face_width, 0, 0], [face_width, face_height, 0], [0, face_height, 0]
+    ], dtype=np.float32)
     
     battery_dis(drone)
     x_pid = PID(kP=0.72, kI=0.0001, kD=0.1)  # Use tvec_x (tvec[i,0,0]) ----> control left and right
@@ -79,6 +128,7 @@ def main():
         frame = frame_read.frame
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
         markerCorners, markerIds, rejectedCandidates = cv2.aruco.detectMarkers(frame, dictionary, parameters=parameters)
+        frame, face_distance = detect_face(frame, face_objectPoints, intrinsic, distortion)
         x_update = 0
         y_update = 0
         z_update = 0
@@ -99,72 +149,11 @@ def main():
                 current_marker_id = markerIds[i][0]
                 frame = cv2.aruco.drawAxis(frame, intrinsic, distortion, rvec[i], tvec[i], 10)
 
-                # Step 1-1: 偵測人臉1 ===============================================================
-                if current_marker_id == 1:
-                    print("marker is 1\n")
-                    rvec_3x3,_ = cv2.Rodrigues(rvec[i])
-                    rvec_zbase = rvec_3x3.dot(np.array([[0],[0],[1]]))
-                    rx_project = rvec_zbase[0]
-                    rz_project = rvec_zbase[2]
-                    angle_diff= math.atan2(float(rz_project), float(rx_project))*180/math.pi + 90 
-
-                    # update yaw, x, y, z 經過調整誤差後的無人機位置距離(無人機的實際位置數據)
-                    yaw_update = (-1)* (angle_diff + 15) 
-                    x_update = tvec[i,0,0] - 10 * (tvec[i,0,2]/100)
-                    y_update = (tvec[i,0,1] - 10) * (-1) 
-                    z_update = tvec[i,0,2] - 75
-                    if z_update <= 10 :
-                        print("對到人臉1!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
-                        face1 = True
-                        drone.send_rc_control(0, 0, 25, 0) # 向上
-                        time.sleep(2)
-                        drone.send_rc_control(0, 25, 0, 0) # 向前
-                        time.sleep(3)
-
-                    x_update = thres(x_pid.update(x_update, sleep=0))
-                    y_update = thres(y_pid.update(y_update, sleep=0))
-                    z_update = thres(z_pid.update(z_update, sleep=0))
-                    yaw_update = thres(yaw_pid.update(yaw_update, sleep=0))
-                    PID_state["pid_x"] = str(x_update)
-                    PID_state["pid_y"] = str(y_update)
-                    PID_state["pid_z"] = str(z_update)
-                    PID_state["pid_yaw"] = str(yaw_update)
-                
-                #Step 1-2: 偵測人臉2 =================================================================
-                elif current_marker_id == 2 and face1 :
-                    print("marker is 2\n")
-                    rvec_3x3,_ = cv2.Rodrigues(rvec[i])
-                    rvec_zbase = rvec_3x3.dot(np.array([[0],[0],[1]]))
-                    rx_project = rvec_zbase[0]
-                    rz_project = rvec_zbase[2]
-                    angle_diff= math.atan2(float(rz_project), float(rx_project))*180/math.pi + 90 
-    
-                    # update yaw, x, y, z 經過調整誤差後的無人機位置距離(無人機的實際位置數據)
-                    yaw_update = (-1)* (angle_diff + 15) 
-                    x_update = tvec[i,0,0] - 10 * (tvec[i,0,2]/100)
-                    y_update = (tvec[i,0,1] - 10) * (-1) 
-                    z_update = tvec[i,0,2] - 70
-                    if z_update <= 10:
-                        print("偵測到人臉2!!!!!!!!!!!!!!!!!!!!!!!\n")
-                        face2 = True
-                        drone.send_rc_control(0, 0, -25, 0) # 向上
-                        time.sleep(2)
-                        drone.send_rc_control(0, 25, 0, 0) # 向前
-                        time.sleep(4)
-
-                    x_update = thres(x_pid.update(x_update, sleep=0))
-                    y_update = thres(y_pid.update(y_update, sleep=0))
-                    z_update = thres(z_pid.update(z_update, sleep=0))
-                    yaw_update = thres(yaw_pid.update(yaw_update, sleep=0))
-                    PID_state["pid_x"] = str(x_update)
-                    PID_state["pid_y"] = str(y_update)
-                    PID_state["pid_z"] = str(z_update)
-                    PID_state["pid_yaw"] = str(yaw_update)
                 
                 # 偵測 carna 還是 melody
                 
                 #Step 2-1: 偵測到carna =================================================================
-                elif current_marker_id == 2 and face2 and doll_label = "carna": 
+                if current_marker_id == 2 and face2 and doll_label = "carna": 
                     print("Step 2 is CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\n")
                     # 開始追線
                     line_finish = True
@@ -286,7 +275,52 @@ def main():
                 print("tvec: {}||{}||{}||{}".format(tvec[i,0,0], tvec[i,0,1], tvec[i,0,2], angle_diff))
                 print("PID: {}||{}||{}||{}".format(PID_state["pid_x"],PID_state["pid_y"],PID_state["pid_z"],PID_state["pid_yaw"]))
                 print("--------------------------------------------")
-                
+
+        # Step 1-1: 偵測人臉1 ===============================================================
+        elif not face1 :
+            if face_distance > 0 and face_distance < 50 :
+                print("偵測到人臉1!!!!!!!!!!!!!!!!!!!!!!!\n")
+                face1 = True
+                ## up 
+                drone.send_rc_control(0, 0, 50, 0)
+                time.sleep(1)
+                ## forward 
+                drone.send_rc_control(0, 0, 50, 0)
+                time.sleep(0.5)
+                ## down
+                drone.send_rc_control(0, 0, -50, 0)
+                time.sleep(1)
+            elif face_distance >= 50:
+                print("人臉距離太遠1，前進!!!!!!!!!!!!!!!!!!!!!!!\n")
+                drone.send_rc_control(0, 25, 0, 0)
+                time.sleep(0.5)
+            elif face_distance <= 0:
+                print("沒看到人臉1，向上!!!!!!!!!!!!!!!!!!!!!!!\n")
+                drone.send_rc_control(0, 0, 50, 0)
+                time.sleep(0.5)
+        #Step 1-2: 偵測人臉2 =================================================================
+        elif face1 and not face2 :
+            if face_distance > 0 and face_distance < 50 :
+                print("偵測到人臉2!!!!!!!!!!!!!!!!!!!!!!!\n")
+                face1 = True
+                ## down
+                drone.send_rc_control(0, 0, -50, 0)
+                time.sleep(1)
+                ## forward 
+                drone.send_rc_control(0, 0, 50, 0)
+                time.sleep(0.5)
+                ## up
+                drone.send_rc_control(0, 0, 50, 0)
+                time.sleep(1)
+            elif face_distance >= 50:
+                print("人臉2距離太遠，前進!!!!!!!!!!!!!!!!!!!!!!!\n")
+                drone.send_rc_control(0, 25, 0, 0)
+                time.sleep(0.5)
+            elif face_distance <= 0:
+                print("沒看到人臉2，向下!!!!!!!!!!!!!!!!!!!!!!!\n")
+                drone.send_rc_control(0, 0, -50, 0)
+                time.sleep(0.5)
+
         else:
             if is_flying == True:
                 drone.send_rc_control(0, 0, 0, 0)
