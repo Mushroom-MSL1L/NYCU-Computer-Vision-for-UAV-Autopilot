@@ -45,6 +45,24 @@ class LineTrace:
     def down_empty(self, pattern):
         return np.sum(pattern[2, :]) == 0
 
+    def upper_T_pattern(self, pattern):
+        match1 = np.equal(pattern, np.array([[0, 1, 0], 
+                                             [0, 1, 0], 
+                                             [1, 1, 1]])).all()
+        match2 = np.equal(pattern, np.array([[0, 1, 0], 
+                                             [1, 1, 1], 
+                                             [1, 1, 1]])).all()
+        match3 = np.equal(pattern, np.array([[0, 1, 0], 
+                                             [1, 1, 1], 
+                                             [0, 0, 0]])).all()
+        match4 = np.equal(pattern, np.array([[0, 1, 0], 
+                                             [0, 0, 0], 
+                                             [1, 1, 1]])).all()
+        match5 = np.equal(pattern, np.array([[0, 0, 0], 
+                                             [0, 1, 0], 
+                                             [1, 1, 1]])).all()
+        return match1 or match2 or match3 or match4 or match5        
+
     def determine_line_distance(self, img):
         distance_rate = self.distance_rate
         distance_tolerance = self.distance_durance
