@@ -8,8 +8,8 @@ import random
 from djitellopy import Tello
 from pyimagesearch.pid import PID
 from keyboard_djitellopy import keyboard, is_flying, is_start
-from line_trace import get_pattern, right_empty, left_empty, up_empty, down_empty, determine_line_distance, vertical_up_line_tracing, vertical_down_line_tracing,  horizontal_left_line_tracing, horizontal_right_line_tracing
- 
+# from line_trace import get_pattern, right_empty, left_empty, up_empty, down_empty, determine_line_distance, vertical_up_line_tracing, vertical_down_line_tracing,  horizontal_left_line_tracing, horizontal_right_line_tracing
+
 from torchvision import transforms
 from models.experimental import attempt_load
 from utils.datasets import letterbox
@@ -43,7 +43,10 @@ def detect_face(frame, face_objectPoints, intrinsic, distortion):
     ScaleFactor = 1.1
     minNeighbers = 20
     minSize = (30, 30)
-    estimated_distance = -1 
+    
+    estimated_distance_x = -1
+    estimated_distance_y = -1
+    estimated_distance_z = -1 
 
     gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     blurred_frame = cv2.GaussianBlur(gray_frame, (5, 5), 0)
@@ -66,8 +69,10 @@ def detect_face(frame, face_objectPoints, intrinsic, distortion):
             intrinsic, 
             distortion
         )
-        estimated_distance = tvec[2]
-        if estimated_distance > 200 :
+        estimated_distance_x = tvec[0]
+        estimated_distance_y = tvec[1]
+        estimated_distance_z = tvec[2]
+        if estimated_distance_z > 200 :
             continue
         cv2.rectangle(
             frame, 
@@ -76,9 +81,9 @@ def detect_face(frame, face_objectPoints, intrinsic, distortion):
             color=(0, 255, 0),
             thickness=2
         )
-        text = "Face distance: " + str(np.round(estimated_distance, 4)) + " cm"
-        cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
-    return frame, estimated_distance
+        text = "x: " + str(np.round(estimated_distance_x, 4)) + ", y: " + str(np.round(estimated_distance_y, 4)) + ", z: " + str(np.round(estimated_distance_z, 4)) + " cm"
+        cv2.putText(frame, text, (x - 200, y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
+    return frame, (estimated_distance_x, estimated_distance_y, estimated_distance_z)
 
 def distinguish_doll(image, device, model, names, colors):
     image_orig = image.copy()
@@ -331,47 +336,65 @@ def main():
 
         # Step 1-1: 偵測人臉1 ===============================================================
         if not face1 and drone.is_flying :
-            face1_distance = 50
-            if face_distance > 0 and face_distance < face1_distance :
+            face1_distance = 70
+            
+            x_update = face_distance[0]
+            y_update = face_distance[1]
+            z_update = face_distance[2]
+            yaw_update = 0
+            
+            if face_distance[2] > 0 and face_distance[2] < face1_distance :
                 print("偵測到人臉1!!!!!!!!!!!!!!!!!!!!!!!\n")
                 face1 = True
                 ## up 
                 drone.send_rc_control(0, 0, 50, 0)
                 time.sleep(2)
                 ## forward 
-                drone.send_rc_control(0, 0, 50, 0)
+                drone.send_rc_control(0, 50, 0, 0)
                 time.sleep(0.5)
                 ## down
                 drone.send_rc_control(0, 0, -50, 0)
                 time.sleep(2)
-            elif face_distance >= face1_distance:
+            elif face_distance[2] >= face1_distance:
                 print("人臉距離太遠1，前進!!!!!!!!!!!!!!!!!!!!!!!\n")
-                drone.send_rc_control(0, 25, 0, 0)
-                time.sleep(0.5)
-            elif face_distance <= 0:
+                x_update = thres(x_pid.update(x_update, sleep=0), max_speed)
+                y_update = thres(y_pid.update(y_update, sleep=0), max_speed)
+                z_update = thres(z_pid.update(z_update, sleep=0), max_speed)
+                yaw_update = 0
+                drone.send_rc_control(int(x_update / 2), int (z_update / 2), int(y_update / 2), int(yaw_update))
+            elif face_distance[2] <= 0:
                 print("沒看到人臉1，向上!!!!!!!!!!!!!!!!!!!!!!!\n")
                 drone.send_rc_control(0, 0, 30, 0)
                 time.sleep(0.5)
         #Step 1-2: 偵測人臉2 =================================================================
         elif face1 and not face2 and drone.is_flying :
-            face2_distance = 50
-            if face_distance > 0 and face_distance < face2_distance :
+            face2_distance = 70
+            
+            x_update = face_distance[0]
+            y_update = face_distance[1]
+            z_update = face_distance[2]
+            yaw_update = 0
+            
+            if face_distance[2] > 0 and face_distance[2] < face2_distance :
                 print("偵測到人臉2!!!!!!!!!!!!!!!!!!!!!!!\n")
                 face2 = True
                 ## down
                 drone.send_rc_control(0, 0, -50, 0)
                 time.sleep(1)
                 ## forward 
-                drone.send_rc_control(0, 0, 50, 0)
+                drone.send_rc_control(0, 50, 0, 0)
                 time.sleep(0.5)
                 ## up
                 drone.send_rc_control(0, 0, 50, 0)
                 time.sleep(1)
-            elif face_distance >= face2_distance:
+            elif face_distance[2] >= face2_distance:
                 print("人臉2距離太遠，前進!!!!!!!!!!!!!!!!!!!!!!!\n")
-                drone.send_rc_control(0, 25, 0, 0)
-                time.sleep(0.5)
-            elif face_distance <= 0:
+                x_update = thres(x_pid.update(x_update, sleep=0), max_speed)
+                y_update = thres(y_pid.update(y_update, sleep=0), max_speed)
+                z_update = thres(z_pid.update(z_update, sleep=0), max_speed)
+                yaw_update = 0
+                drone.send_rc_control(int(x_update / 2), int (z_update / 2), int(y_update / 2), int(yaw_update))
+            elif face_distance[2] <= 0:
                 print("沒看到人臉2，向下!!!!!!!!!!!!!!!!!!!!!!!\n")
                 drone.send_rc_control(0, 0, -50, 0)
                 time.sleep(0.5)
