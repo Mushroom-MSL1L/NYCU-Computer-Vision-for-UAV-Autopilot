@@ -89,20 +89,15 @@ def distinguish_doll(image, device, model, names, colors):
         output = model(image)[0]
     output = non_max_suppression_kpt(output, 0.25, 0.65)[0]
     
-    ## Draw label and confidence on the image
-    output[:, :4] = scale_coords(image.shape[2:], output[:, :4], image_orig.shape).round()
-    for *xyxy, conf, cls in output:
-        label = f'{names[int(cls)]} {conf:.2f}'
-        return names[int(cls)], conf, output 
-    
+    ## Draw label and confidence on the image    
     output[:, :4] = scale_coords(image.shape[2:], output[:, :4], image_orig.shape).round()
     for *xyxy, conf, cls in output:
         label = f'{names[int(cls)]} {conf:.2f}'
         plot_one_box(xyxy, image_orig, label=label, color=colors[int(cls)], line_thickness=1)
         print(label)
-
-    cv2.imshow("Detected", image_orig)
-    cv2.waitKey(1)
+        return names[int(cls)], conf, image_orig
+    return None, None, image_orig
+    ### intentionally return the first one, assume there is only one doll in the image
 
 def load_model():
     WEIGHT = './best.pt'
@@ -115,11 +110,11 @@ def load_model():
         model = model.float().to(device)
     names = model.module.names if hasattr(model, 'module') else model.names
     colors = [[random.randint(0, 255) for _ in range(3)] for _ in names]
+    return device, model, names, colors
     
 def main():
-    # load_model()
+    device, model, doll_names, doll_colors = load_model()
     
-
     face1 = False
     face2 = False
     line_finish = False
@@ -159,6 +154,8 @@ def main():
         z_update = 0
         yaw_update = 0
         angle_diff = 0
+        doll_name, confidence, frame = distinguish_doll(frame, device, model, doll_names, doll_colors)
+        # 看要不要再寫一個函式用confidence判斷name，或者直接取label 的 name 也可以，還蠻準的
         
         # if markerIds is not None:
         #     # pose estimation for single markers
