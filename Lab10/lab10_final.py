@@ -7,8 +7,8 @@ import random
 from djitellopy import Tello
 from pyimagesearch.pid import PID
 from keyboard_djitellopy import keyboard, is_flying, is_start
-# from line_trace import get_pattern, right_empty, left_empty, up_empty, down_empty, determine_line_distance, vertical_up_line_tracing, vertical_down_line_tracing,  horizontal_left_line_tracing, horizontal_right_line_tracing
-
+from line_trace import LineTrace
+ 
 from torchvision import transforms
 from models.experimental import attempt_load
 from utils.datasets import letterbox
@@ -124,6 +124,7 @@ def main():
     face1 = False       # default: False(not detected)
     face2 = False
     line_path = 0       # 0: none, 1: melody(up first), 2: carna(up later)
+    line_trace = False  # default: False(not start)
     line_task = 0       # default: 0(not start)
     land_melody = False
     land_carna = False
@@ -149,6 +150,8 @@ def main():
     id3_stable_threshold = 30   # 30 frames
     stable_counter = 0          # default: 0
     
+    LT = LineTrace()
+    
     x_pid = PID(kP=0.72, kI=0.0001, kD=0.1)  # Use tvec_x (tvec[i,0,0]) ----> control left and right
     z_pid = PID(kP=0.7, kI=0.0001, kD=0.1)  # Use tvec_z (tvec[i,0,2])----> control forward and backward
     y_pid = PID(kP=0.7, kI=0.0001, kD=0.1)  # Use tvec_y (tvec[i,0,1])----> control upward and downward
@@ -161,6 +164,18 @@ def main():
     while True:
         frame = frame_read.frame
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        
+        dilation = LT.process_frame(frame)
+        binary01 = dilation // 255
+        pattern = LT.get_pattern(binary01)
+        text = "pattern: \n" + str(pattern[0]) + "\n" + str(pattern[1]) + "\n" + str(pattern[2])
+        print(text)
+        cv2.putText(frame, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+        cv2.imshow("dilation", dilation)
+        cv2.namedWindow("dilation", 0)
+        cv2.resizeWindow("dilation", 800, 600)
+        state = ""
+        
         markerCorners, markerIds, rejectedCandidates = cv2.aruco.detectMarkers(frame, dictionary, parameters=parameters)
         frame, face_distance = detect_face(frame, face_objectPoints, intrinsic, distortion)
         x_update, y_update, z_update, yaw_update, angle_diff = 0, 0, 0, 0, 0
@@ -174,7 +189,6 @@ def main():
             if doll_name == "carna":
                 line_path = 2
                 print("偵測到carna CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\n")
-        
         if markerIds is not None:
             frame = cv2.aruco.drawDetectedMarkers(frame, markerCorners, markerIds)
             rvec, tvec, _objPoints = cv2.aruco.estimatePoseSingleMarkers(markerCorners, 15, intrinsic, distortion)
@@ -208,7 +222,7 @@ def main():
 
 
                 #Step 2-2: go to id 1 =================================================================
-                if current_marker_id == 1 and face2 and line_task == 0 :
+                if current_marker_id == 1 and face2 and not line_trace:
                     if z is None : ## slowly forward
                         for ii in range (1) :
                             drone.send_rc_control(0, 20, 0, 0)
@@ -226,13 +240,14 @@ def main():
                             stable_counter += 1
                             continue
                         ## go up for line
-                        line_task += 1 
+                        line_trace = True
                         stable_counter = 0 
                         drone.send_rc_control(0, 5, 30, 0)
                         time.sleep(1.5)
                 
                 # Step 4: 追線完成 ====================================================================                 
                 elif line_finish and current_marker_id == 2: 
+                    line_trace = False
                     print("追線完成！正在對準marker2!!!!!!!!!!!!!!!!!!!\n")
                     if z is None : ## slowly forward
                         for ii in range (1) :
@@ -264,8 +279,6 @@ def main():
                                 print("偵測到carna CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\n")
                                 land_carna = True
                         finish4 = True
-
-                
                 # Step 5-1: 偵測 carna 或 melody =================================================================                 
                 elif finish4:
                     if land_carna:
@@ -288,7 +301,6 @@ def main():
                     y_update = thres(y_pid.update(y_update, sleep=0))
                     z_update = thres(z_pid.update(z_update, sleep=0))
                     yaw_update = thres(yaw_pid.update(yaw_update, sleep=0))
-
 
                 # Step 5-2: 偵測 marker id 並降落 =================================================================                 
                 elif land and current_marker_id == 3:
@@ -371,8 +383,7 @@ def main():
             x_update = face_distance[0]
             y_update = face_distance[1]
             z_update = face_distance[2]
-            yaw_update = 0
-            
+            yaw_update = 0        
             if face_distance[2] > 0 and face_distance[2] < face2_distance :
                 print("偵測到人臉2!!!!!!!!!!!!!!!!!!!!!!!\n")
                 face2 = True
@@ -396,13 +407,179 @@ def main():
                 print("沒看到人臉2，向下!!!!!!!!!!!!!!!!!!!!!!!\n")
                 drone.send_rc_control(0, 0, -50, 0)
                 time.sleep(0.5)
-        #Step 3 : line tracing =================================================================
-        elif line_task == 1 and drone.is_flying :
-            pass
+        #Step 3-a : line tracing melody(up first) =================================================================
+        elif line_trace and drone.is_flying and line_path == 1 :
+            line_distance = LT.determine_line_distance(frame)
+            if line_task == 0 :
+                line_task += 1
+                ## go up a bit
+                drone.send_rc_control(0, 0, 20, 0)
+                time.sleep(1)
+            elif line_task == 1 :
+                # go left 
+                state = LT.horizontal_left_line_tracing(frame, line_distance)
+                if LT.upper_T_pattern(pattern) :
+                    line_task += 1
+                    print("T pattern!!!!!!!!!!!!!!!!!!!!!!!\n")
+                    ## forcely go up
+                    drone.send_rc_control(0, 0, 30, 0)
+                    time.sleep(1.5)
+            elif line_task == 2 :
+                # go up
+                state = LT.vertical_up_line_tracing(frame, line_distance)
+                if LT.up_empty(pattern) :
+                    line_task += 1
+                    ## forcely go left
+                    drone.send_rc_control(-20, 0, 0, 0)
+                    time.sleep(1.5)
+            elif line_task == 3 :
+                # go left
+                state = LT.horizontal_left_line_tracing(frame, line_distance)
+                if LT.left_empty(pattern) :
+                    line_task += 1
+                    ## forcely go down
+                    drone.send_rc_control(0, 0, -30, 0)
+                    time.sleep(1.5)
+            elif line_task == 4 :
+                # go down
+                state = LT.vertical_down_line_tracing(frame, line_distance)
+                if LT.upper_T_pattern(pattern) :
+                    line_task += 1
+                    print("T pattern!!!!!!!!!!!!!!!!!!!!!!!\n")
+                    ## forcely go left
+                    drone.send_rc_control(20, 0, 0, 0)
+                    time.sleep(1.5)
+            elif line_task == 5 :
+                # go left
+                state = LT.horizontal_left_line_tracing(frame, line_distance)
+                if LT.left_empty(pattern) :
+                    line_task += 1
+                    ## forcely go down
+                    drone.send_rc_control(0, 0, -30, 0)
+                    time.sleep(1.5)
+            elif line_task == 6 : ## warning
+                # go down
+                state = LT.vertical_down_line_tracing(frame, line_distance)
+                if LT.down_empty(pattern) :
+                    line_task += 1
+                    ## forcely go left and backward
+                    drone.send_rc_control(20, -30, 0, 0)
+                    time.sleep(1.5)
+            elif line_task == 7 : ## warning
+                # go left
+                state = LT.horizontal_left_line_tracing(frame, line_distance)
+                if LT.left_empty(pattern) :
+                    line_task += 1
+                    ## forcely go up
+                    drone.send_rc_control(0, 0, 30, 0)
+                    time.sleep(1.5)
+            elif line_task == 8 :
+                # go up
+                state = LT.vertical_up_line_tracing(frame, line_distance)
+                if LT.up_empty(pattern) :
+                    line_task += 1
+                    ## forcely go left
+                    drone.send_rc_control(-20, 0, 0, 0)
+                    time.sleep(1.5)
+            elif line_task == 9 :
+                # keep go left 
+                state = LT.horizontal_left_line_tracing(frame, line_distance)
+                line_finish = True
+                ## id2 part should 
+                ### line_trace = False
+        #Step 3-b : line tracing carna(up later) =================================================================
+        elif line_trace and drone.is_flying and line_path == 2 :
+            line_distance = LT.determine_line_distance(frame)
+            if line_task == 0 :
+                line_task += 1
+                ## go up a bit
+                drone.send_rc_control(0, 0, 20, 0)
+                time.sleep(1)
+            elif line_task == 1 :
+                # keep go left 
+                state = LT.horizontal_left_line_tracing(frame, line_distance)
+                if LT.left_empty(pattern) :
+                    line_task += 1
+                    ## forcely go down
+                    drone.send_rc_control(0, 0, -30, 0)
+                    time.sleep(1.5)
+            elif line_task == 2 : ## warning
+                # go down
+                state = LT.vertical_down_line_tracing(frame, line_distance)
+                if LT.down_empty(pattern) :
+                    line_task += 1
+                    ## forcely go left and backward
+                    drone.send_rc_control(-20, -30, 0, 0)
+                    time.sleep(1.5)
+            elif line_task == 3 : ## warning
+                # go left
+                state = LT.horizontal_left_line_tracing(frame, line_distance)
+                if LT.left_empty(pattern) :
+                    line_task += 1
+                    ## forcely go up
+                    drone.send_rc_control(0, 0, 30, 0)
+                    time.sleep(1.5)
+            elif line_task == 4 :
+                # go up
+                state = LT.vertical_up_line_tracing(frame, line_distance)
+                if LT.up_empty(pattern) :
+                    line_task += 1
+                    ## forcely go left
+                    drone.send_rc_control(-20, 0, 0, 0)
+                    time.sleep(1.5)
+            elif line_task == 5 :
+                # go left
+                state = LT.horizontal_left_line_tracing(frame, line_distance)
+                if LT.upper_T_pattern(pattern) :
+                    line_task += 1
+                    print("T pattern!!!!!!!!!!!!!!!!!!!!!!!\n")
+                    ## forcely go up
+                    drone.send_rc_control(0, 0, 30, 0)
+                    time.sleep(1.5)
+            elif line_task == 6 :
+                # go up
+                state = LT.vertical_up_line_tracing(frame, line_distance)
+                if LT.up_empty(pattern) :
+                    line_task += 1
+                    ## forcely go left
+                    drone.send_rc_control(-20, 0, 0, 0)
+                    time.sleep(1.5)
+            elif line_task == 7 :
+                # go left
+                state = LT.horizontal_left_line_tracing(frame, line_distance)
+                if LT.left_empty(pattern) :
+                    line_task += 1
+                    ## forcely go down
+                    drone.send_rc_control(0, 0, -30, 0)
+                    time.sleep(1.5)
+            elif line_task == 8 :
+                # go down
+                state = LT.vertical_down_line_tracing(frame, line_distance)
+                if LT.down_empty(pattern) :
+                    line_task += 1
+                    ## forcely go left
+                    drone.send_rc_control(-20, 0, 0, 0)
+                    time.sleep(1.5)
+            elif line_task == 9 :
+                # keep go left
+                state = LT.horizontal_left_line_tracing(frame, line_distance)
+                line_finish = True
+                ## id2 part should 
+                ### line_trace = False
+        #Step 3-c : line tracing exception =================================================================
+        elif line_trace and drone.is_flying :
+            print("line tracing exception!!!!!!!!!!!!!!!!!!!!!!!\n")
+            print("line_path: ", line_path)
+            drone.send_rc_control(0, 0, 0, 0)
+        # just do nothing
         else:
             if drone.is_flying == True:
                 drone.send_rc_control(0, 0, 0, 0)
                 print("no command")
+
+        text = "state: " + state
+        cv2.putText(frame, text, (10, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+        print(text)
         
         cv2.imshow("drone", frame)
         key = cv2.waitKey(1)
@@ -410,11 +587,9 @@ def main():
             keyboard(drone, key)
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
-            drone.send_rc_control(0, 0, 0, 0)
+            drone.land()
+            cv2.destroyAllWindows()
             break
-    
-    cv2.destroyAllWindows()
-
 
 if __name__ == '__main__':
     main()
