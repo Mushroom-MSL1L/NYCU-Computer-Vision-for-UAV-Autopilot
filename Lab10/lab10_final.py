@@ -3,16 +3,18 @@ import numpy as np
 import time
 import math
 import torch
+import random 
+
 from djitellopy import Tello
 from pyimagesearch.pid import PID
 from keyboard_djitellopy import keyboard, is_flying, is_start
-
+from line_trace import get_pattern, right_empty, left_empty, up_empty, down_empty, determine_line_distance, vertical_up_line_tracing, vertical_down_line_tracing,  horizontal_left_line_tracing, horizontal_right_line_tracing
+ 
 from torchvision import transforms
 from models.experimental import attempt_load
 from utils.datasets import letterbox
 from utils.general import non_max_suppression_kpt, scale_coords
 from utils.plots import plot_one_box
-import random 
 
 dictionary = cv2.aruco.Dictionary_get(cv2.aruco.DICT_4X4_250)
 parameters = cv2.aruco.DetectorParameters_create()
@@ -115,16 +117,17 @@ def load_model():
 def main():
     device, model, doll_names, doll_colors = load_model()
     
-    face1 = False
+    face1 = False       # default: False(not detected)
     face2 = False
-    line_finish = False
-    finish4 = False
-    land = False
+    line_path = 0       # 0: none, 1: melody(up first), 2: carna(up later)
+    line_task = 0       # default: 0(not start)
 
     drone = Tello()
     drone.connect()
     drone.streamon()
     frame_read = drone.get_frame_read()
+    max_speed = 40
+    
     intrinsic, distortion = calibrate()
     face_width = 15     # cm of real face width
     face_height = 18    # cm of real face height
@@ -133,12 +136,13 @@ def main():
         [0, 0, 0], [face_width, 0, 0], [face_width, face_height, 0], [0, face_height, 0]
     ], dtype=np.float32)
     
-    battery_dis(drone)
+    id1_stable_threshold = 30   # 30 frames
+    stable_counter = 0          # default: 0
+    
     x_pid = PID(kP=0.72, kI=0.0001, kD=0.1)  # Use tvec_x (tvec[i,0,0]) ----> control left and right
     z_pid = PID(kP=0.7, kI=0.0001, kD=0.1)  # Use tvec_z (tvec[i,0,2])----> control forward and backward
     y_pid = PID(kP=0.7, kI=0.0001, kD=0.1)  # Use tvec_y (tvec[i,0,1])----> control upward and downward
     yaw_pid = PID(kP=0.7,kI=0.0001, kD=0.1)
-    
     x_pid.initialize()
     z_pid.initialize()
     y_pid.initialize()
@@ -149,155 +153,181 @@ def main():
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
         markerCorners, markerIds, rejectedCandidates = cv2.aruco.detectMarkers(frame, dictionary, parameters=parameters)
         frame, face_distance = detect_face(frame, face_objectPoints, intrinsic, distortion)
-        x_update = 0
-        y_update = 0
-        z_update = 0
-        yaw_update = 0
-        angle_diff = 0
+        x_update, y_update, z_update, yaw_update, angle_diff = 0, 0, 0, 0, 0
         doll_name, confidence, frame = distinguish_doll(frame, device, model, doll_names, doll_colors)
         # 看要不要再寫一個函式用confidence判斷name，或者直接取label 的 name 也可以，還蠻準的
+        # Step 2-1: 偵測到doll =================================================================
+        if doll_name is not None and confidence > 0.5:
+            if doll_name == "melody":
+                line_path = 1
+                print("偵測到melody MMMMMMMMMMMMMMMMMMMMMMMMMMMMM\n")
+            if doll_name == "carna":
+                line_path = 2
+                print("偵測到carna CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\n")
         
-        # if markerIds is not None:
-        #     # pose estimation for single markers
-        #     frame = cv2.aruco.drawDetectedMarkers(frame, markerCorners, markerIds)
-        #     rvec, tvec, _objPoints = cv2.aruco.estimatePoseSingleMarkers(markerCorners, 15, intrinsic, distortion)
-        #     print("marker not None!!\n")
+        if markerIds is not None:
+            # pose estimation for single markers
+            frame = cv2.aruco.drawDetectedMarkers(frame, markerCorners, markerIds)
+            rvec, tvec, _objPoints = cv2.aruco.estimatePoseSingleMarkers(markerCorners, 15, intrinsic, distortion)
+            print("marker not None!!\n")
 
-        #     for i in range(rvec.shape[0]):
-        #         PID_state = {}
-        #         PID_state["pid_x"] = ''
-        #         PID_state["pid_y"] = ''
-        #         PID_state["pid_z"] = ''
-        #         PID_state["pid_yaw"] = ''
-        #         current_marker_id = markerIds[i][0]
-        #         frame = cv2.aruco.drawAxis(frame, intrinsic, distortion, rvec[i], tvec[i], 10)
+            for i in range(rvec.shape[0]):
+                PID_state = {}
+                PID_state["pid_x"] = ''
+                PID_state["pid_y"] = ''
+                PID_state["pid_z"] = ''
+                PID_state["pid_yaw"] = ''
+                current_marker_id = markerIds[i][0]
+                frame = cv2.aruco.drawAxis(frame, intrinsic, distortion, rvec[i], tvec[i], 10)
+                
+                ## angle
+                rotation_matrix = np.zeros((3, 3))
+                cv2.Rodrigues(rvec[i], rotation_matrix) # transform the rotation vector into a rotation matrix
+                yaw_pitch_roll = cv2.RQDecomp3x3(rotation_matrix)[0] # yaw : vertical, pitch : horizontal, roll : perpendicular
+                yaw = yaw_pitch_roll[1]                
+                x, y, z = tvec[i,0,0], tvec[i,0,1] , abs(tvec[i,0,2] )  
 
-                
-        #         # 偵測 carna 還是 melody
-                
-        #         #Step 2-1: 偵測到carna =================================================================
-        #         if current_marker_id == 2 and face2 and doll_label == "carna": 
-        #             print("Step 2 is CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\n")
-        #             # 開始追線
-        #             line_finish = True
+                # update yaw, x, y, z 經過調整誤差後的無人機位置距離(無人機的實際位置數據)
+                # yaw_update = (-1)* (angle_diff + 15) 
+                # x_update = tvec[i,0,0] - 10 * (tvec[i,0,2]/100)
+                # y_update = (tvec[i,0,1] - 10) * (-1) 
+                # z_update = tvec[i,0,2] - 60
+                x_update = (x * 2 + 6)  # + is right, - is left
+                y_update = -y + 10    # + is down, - is up
+                z_update = (z - 50) + 15    # + is forward, - is backward
+                yaw_update = yaw * 1 
 
-        #         #Step 2-2: 偵測到melody =================================================================
-        #         elif current_marker_id == 2 and face2 and doll_label == "melody": 
-        #             print("Step 2 is MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM\n")
-        #             # 開始追線
-        #             line_finish = True
+                #Step 2-2: go to id 1 =================================================================
+                if current_marker_id == 1 and face2 and line_task == 0 :
+                    if z is None : ## slowly forward
+                        for ii in range (1) :
+                            drone.send_rc_control(0, 20, 0, 0)
+                            time.sleep(0.4)
+                    if z >= 40 or z <= 32 or y < -10 or 10 < y : # before go right for line
+                        z_update += 15 # 50 - 15 cm = 35
+                        x_update = thres(x_pid.update(x_update, sleep=0), max_speed)
+                        y_update = thres(y_pid.update(y_update, sleep=0), max_speed)
+                        z_update = thres(z_pid.update(z_update, sleep=0), max_speed)
+                        yaw_update = thres(yaw_pid.update(yaw_update, sleep=0), max_speed)
+                        drone.send_rc_control(int(x_update), int (z_update / 2), int(y_update / 2), int(yaw_update))
+                    else : # z < 35  
+                        print("stable_counter : ", stable_counter)
+                        if stable_counter < id1_stable_threshold :
+                            stable_counter += 1
+                            continue
+                        ## go up for line
+                        line_task += 1 
+                        stable_counter = 0 
+                        drone.send_rc_control(0, 5, 30, 0)
+                        time.sleep(1.5)
                 
-        #         # Step 4: 追線完成 =================================================================                 
-        #         elif line_finish and current_marker_id == 3: 
-        #             print("追線完成！正在對準marker3!!!!!!!!!!!!!!!!!!!\n")
-        #             rvec_3x3,_ = cv2.Rodrigues(rvec[i])
-        #             rvec_zbase = rvec_3x3.dot(np.array([[0],[0],[1]]))
-        #             rx_project = rvec_zbase[0]
-        #             rz_project = rvec_zbase[2]
-        #             angle_diff= math.atan2(float(rz_project), float(rx_project))*180/math.pi + 90 
+                # # Step 4: 追線完成 =================================================================                 
+                # elif line_finish and current_marker_id == 3: 
+                #     print("追線完成！正在對準marker3!!!!!!!!!!!!!!!!!!!\n")
+                #     rvec_3x3,_ = cv2.Rodrigues(rvec[i])
+                #     rvec_zbase = rvec_3x3.dot(np.array([[0],[0],[1]]))
+                #     rx_project = rvec_zbase[0]
+                #     rz_project = rvec_zbase[2]
+                #     angle_diff= math.atan2(float(rz_project), float(rx_project))*180/math.pi + 90 
     
-        #             # update yaw, x, y, z 經過調整誤差後的無人機位置距離(無人機的實際位置數據)
-        #             yaw_update = (-1)* (angle_diff + 15) 
-        #             x_update = tvec[i,0,0] - 10 * (tvec[i,0,2]/100)
-        #             y_update = (tvec[i,0,1] - 10) * (-1) 
-        #             z_update = tvec[i,0,2] - 60
-        #             if z_update <= 15:
-        #                 print("marker_id 3對準了！準備轉彎!!!!!!!!!!!!!!!!!!!!!!!\n\n\n\n")
-        #                 drone.send_rc_control(0, 0, 0, -180) # 向左180度
-        #                 time.sleep(1)
-        #                 drone.send_rc_control(0, 30, 0, 0) # 向前
-        #                 time.sleep(4)
-        #                 finish4 = True
+                #     if z_update <= 15:
+                #         print("marker_id 3對準了！準備轉彎!!!!!!!!!!!!!!!!!!!!!!!\n\n\n\n")
+                #         drone.send_rc_control(0, 0, 0, -180) # 向左180度
+                #         time.sleep(1)
+                #         drone.send_rc_control(0, 30, 0, 0) # 向前
+                #         time.sleep(4)
+                #         finish4 = True
 
-        #             x_update = thres(x_pid.update(x_update, sleep=0))
-        #             y_update = thres(y_pid.update(y_update, sleep=0))
-        #             z_update = thres(z_pid.update(z_update, sleep=0))
-        #             yaw_update = thres(yaw_pid.update(yaw_update, sleep=0))
-        #             PID_state["pid_x"] = str(x_update)
-        #             PID_state["pid_y"] = str(y_update)
-        #             PID_state["pid_z"] = str(z_update)
-        #             PID_state["pid_yaw"] = str(yaw_update)
+                #     x_update = thres(x_pid.update(x_update, sleep=0))
+                #     y_update = thres(y_pid.update(y_update, sleep=0))
+                #     z_update = thres(z_pid.update(z_update, sleep=0))
+                #     yaw_update = thres(yaw_pid.update(yaw_update, sleep=0))
+                #     PID_state["pid_x"] = str(x_update)
+                #     PID_state["pid_y"] = str(y_update)
+                #     PID_state["pid_z"] = str(z_update)
+                #     PID_state["pid_yaw"] = str(yaw_update)
                 
-        #         # Step 5-1: 偵測 carna 或 melody =================================================================                 
-        #         elif finish4 and doll_label = "carna" :
-        #             print("step 5_0 : CCCCCCCCCCCCCCCCCCCCCC!!!!!!!!!!!\n")
-        #             drone.send_rc_control(-25, 0, 0, 0) # 向左
-        #             time.sleep(2)
-        #             drone.send_rc_control(0, 25, 0, 0) # 向前
-        #             time.sleep(1)
-        #             land = True
+                # # Step 5-1: 偵測 carna 或 melody =================================================================                 
+                # elif finish4 and doll_label = "carna" :
+                #     print("step 5_0 : CCCCCCCCCCCCCCCCCCCCCC!!!!!!!!!!!\n")
+                #     drone.send_rc_control(-25, 0, 0, 0) # 向左
+                #     time.sleep(2)
+                #     drone.send_rc_control(0, 25, 0, 0) # 向前
+                #     time.sleep(1)
+                #     land = True
                 
-        #             x_update = thres(x_pid.update(x_update, sleep=0))
-        #             y_update = thres(y_pid.update(y_update, sleep=0))
-        #             z_update = thres(z_pid.update(z_update, sleep=0))
-        #             yaw_update = thres(yaw_pid.update(yaw_update, sleep=0))
-        #             PID_state["pid_x"] = str(x_update)
-        #             PID_state["pid_y"] = str(y_update)
-        #             PID_state["pid_z"] = str(z_update)
-        #             PID_state["pid_yaw"] = str(yaw_update)
+                #     x_update = thres(x_pid.update(x_update, sleep=0))
+                #     y_update = thres(y_pid.update(y_update, sleep=0))
+                #     z_update = thres(z_pid.update(z_update, sleep=0))
+                #     yaw_update = thres(yaw_pid.update(yaw_update, sleep=0))
+                #     PID_state["pid_x"] = str(x_update)
+                #     PID_state["pid_y"] = str(y_update)
+                #     PID_state["pid_z"] = str(z_update)
+                #     PID_state["pid_yaw"] = str(yaw_update)
                               
-        #         elif finish4 and doll_label = "melody" :
-        #             print("step 5_1 : MMMMMMMMMMMMMMMMMMMMMM!!!!!!!!!!!\n")
-        #             drone.send_rc_control(25, 0, 0, 0) # 向右
-        #             time.sleep(2)
-        #             drone.send_rc_control(0, 25, 0, 0) # 向前
-        #             time.sleep(1)
-        #             land = True
+                # elif finish4 and doll_label = "melody" :
+                #     print("step 5_1 : MMMMMMMMMMMMMMMMMMMMMM!!!!!!!!!!!\n")
+                #     drone.send_rc_control(25, 0, 0, 0) # 向右
+                #     time.sleep(2)
+                #     drone.send_rc_control(0, 25, 0, 0) # 向前
+                #     time.sleep(1)
+                #     land = True
                 
-        #             x_update = thres(x_pid.update(x_update, sleep=0))
-        #             y_update = thres(y_pid.update(y_update, sleep=0))
-        #             z_update = thres(z_pid.update(z_update, sleep=0))
-        #             yaw_update = thres(yaw_pid.update(yaw_update, sleep=0))
-        #             PID_state["pid_x"] = str(x_update)
-        #             PID_state["pid_y"] = str(y_update)
-        #             PID_state["pid_z"] = str(z_update)
-        #             PID_state["pid_yaw"] = str(yaw_update)
+                #     x_update = thres(x_pid.update(x_update, sleep=0))
+                #     y_update = thres(y_pid.update(y_update, sleep=0))
+                #     z_update = thres(z_pid.update(z_update, sleep=0))
+                #     yaw_update = thres(yaw_pid.update(yaw_update, sleep=0))
+                #     PID_state["pid_x"] = str(x_update)
+                #     PID_state["pid_y"] = str(y_update)
+                #     PID_state["pid_z"] = str(z_update)
+                #     PID_state["pid_yaw"] = str(yaw_update)
 
-        #         # Step 5-2: 偵測 marker id 並降落 =================================================================                 
-        #         elif land and current_marker_id == 5:
-        #             print("---------------------marker is 5 cccccccccccccc---------------------\n\n\n\n")
-        #             rvec_3x3,_ = cv2.Rodrigues(rvec[i])
-        #             rvec_zbase = rvec_3x3.dot(np.array([[0],[0],[1]]))
-        #             rx_project = rvec_zbase[0]
-        #             rz_project = rvec_zbase[2]
-        #             angle_diff= math.atan2(float(rz_project), float(rx_project))*180/math.pi + 90 
+                # # Step 5-2: 偵測 marker id 並降落 =================================================================                 
+                # elif land and current_marker_id == 5:
+                #     print("---------------------marker is 5 cccccccccccccc---------------------\n\n\n\n")
+                #     rvec_3x3,_ = cv2.Rodrigues(rvec[i])
+                #     rvec_zbase = rvec_3x3.dot(np.array([[0],[0],[1]]))
+                #     rx_project = rvec_zbase[0]
+                #     rz_project = rvec_zbase[2]
+                #     angle_diff= math.atan2(float(rz_project), float(rx_project))*180/math.pi + 90 
     
-        #             # update yaw, x, y, z 經過調整誤差後的無人機位置距離(無人機的實際位置數據)
-        #             yaw_update = (-1)* (angle_diff + 15) 
-        #             x_update = tvec[i,0,0] - 10 * (tvec[i,0,2]/100) + 30
-        #             y_update = (tvec[i,0,1] - 10) * (-1) 
-        #             z_update = tvec[i,0,2] - 165
-        #             if abs(z_update) <= 10 and abs(x_update) <= 10:
-        #                 time.sleep(2)
-        #                 if abs(z_update) <= 10 and abs(x_update) <= 10:
-        #                     print("---------------準備降落!!!!!!!!!!!!!!!!!!!!!!!-------------\n\n\n\n")
-        #                     drone.send_rc_control(0, 0, 0, 0)
-        #                     time.sleep(1)
-        #                     drone.land()
-        #                     drone.send_rc_control(0, 0, 0, 0)
+                #     # update yaw, x, y, z 經過調整誤差後的無人機位置距離(無人機的實際位置數據)
+                #     yaw_update = (-1)* (angle_diff + 15) 
+                #     x_update = tvec[i,0,0] - 10 * (tvec[i,0,2]/100) + 30
+                #     y_update = (tvec[i,0,1] - 10) * (-1) 
+                #     z_update = tvec[i,0,2] - 165
+                #     if abs(z_update) <= 10 and abs(x_update) <= 10:
+                #         time.sleep(2)
+                #         if abs(z_update) <= 10 and abs(x_update) <= 10:
+                #             print("---------------準備降落!!!!!!!!!!!!!!!!!!!!!!!-------------\n\n\n\n")
+                #             drone.send_rc_control(0, 0, 0, 0)
+                #             time.sleep(1)
+                #             drone.land()
+                #             drone.send_rc_control(0, 0, 0, 0)
     
-        #             x_update = thres(x_pid.update(x_update, sleep=0))
-        #             y_update = thres(y_pid.update(y_update, sleep=0))
-        #             z_update = thres(z_pid.update(z_update, sleep=0))
-        #             yaw_update = thres(yaw_pid.update(yaw_update, sleep=0))
-        #             PID_state["pid_x"] = str(x_update)
-        #             PID_state["pid_y"] = str(y_update)
-        #             PID_state["pid_z"] = str(z_update)
-        #             PID_state["pid_yaw"] = str(yaw_update)
+                #     x_update = thres(x_pid.update(x_update, sleep=0))
+                #     y_update = thres(y_pid.update(y_update, sleep=0))
+                #     z_update = thres(z_pid.update(z_update, sleep=0))
+                #     yaw_update = thres(yaw_pid.update(yaw_update, sleep=0))
+                #     PID_state["pid_x"] = str(x_update)
+                #     PID_state["pid_y"] = str(y_update)
+                #     PID_state["pid_z"] = str(z_update)
+                #     PID_state["pid_yaw"] = str(yaw_update)
 
 
-        #         drone.send_rc_control(int(x_update//1), int(z_update//2), int(y_update//1), int(yaw_update//1))
-        #         # display x, y, z coordinates on the frame
-        #         # 無人機鏡頭偵測到的位置距離
-        #         cv2.putText(frame, "x = {:.3f}  y = {:.3f}  z = {:.3f}  yaw = {:.3f}".format(tvec[i][0][0], tvec[i][0][1], tvec[i][0][2], angle_diff), (10, 64), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
-        #         # 經過PID控制器調整後的位置
-        #         cv2.putText(frame, "x = {:.3f}  y = {:.3f}  z = {:.3f}  yaw = {:.3f}".format(x_update, y_update,z_update,yaw_update), (10, 128), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
+                drone.send_rc_control(int(x_update//1), int(z_update//2), int(y_update//1), int(yaw_update//1))
+                # display x, y, z coordinates on the frame
+                # 無人機鏡頭偵測到的位置距離
+                cv2.putText(frame, "x = {:.3f}  y = {:.3f}  z = {:.3f}  yaw = {:.3f}".format(tvec[i][0][0], tvec[i][0][1], tvec[i][0][2], angle_diff), (10, 64), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
+                # 經過PID控制器調整後的位置
+                cv2.putText(frame, "x = {:.3f}  y = {:.3f}  z = {:.3f}  yaw = {:.3f}".format(x_update, y_update,z_update,yaw_update), (10, 128), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
                 
-        #         print("--------------------------------------------")
-        #         print("MarkerIDs: {}".format(markerIds))
-        #         print("tvec: {}||{}||{}||{}".format(tvec[i,0,0], tvec[i,0,1], tvec[i,0,2], angle_diff))
-        #         print("PID: {}||{}||{}||{}".format(PID_state["pid_x"],PID_state["pid_y"],PID_state["pid_z"],PID_state["pid_yaw"]))
-        #         print("--------------------------------------------")
+                print("--------------------------------------------")
+                battery_dis(drone)
+                print("MarkerIDs: {}".format(markerIds))
+                print("tvec: {}||{}||{}||{}".format(tvec[i,0,0], tvec[i,0,1], tvec[i,0,2], angle_diff))
+                print("PID: {}||{}||{}||{}".format(PID_state["pid_x"],PID_state["pid_y"],PID_state["pid_z"],PID_state["pid_yaw"]))
+                print("--------------------------------------------")
 
         # Step 1-1: 偵測人臉1 ===============================================================
         if not face1 and drone.is_flying :
@@ -345,7 +375,9 @@ def main():
                 print("沒看到人臉2，向下!!!!!!!!!!!!!!!!!!!!!!!\n")
                 drone.send_rc_control(0, 0, -50, 0)
                 time.sleep(0.5)
-
+        #Step 3 : line tracing =================================================================
+        elif line_task == 1 and drone.is_flying :
+            pass
         else:
             if drone.is_flying == True:
                 drone.send_rc_control(0, 0, 0, 0)
