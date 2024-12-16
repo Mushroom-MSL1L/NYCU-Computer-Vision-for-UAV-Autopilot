@@ -123,9 +123,12 @@ def main():
     
     face1 = False       # default: False(not detected)
     face2 = False
+    detect_doll = False # default: False(don't detect)
     line_path = 0       # 0: none, 1: melody(up first), 2: carna(up later)
     line_trace = False  # default: False(not start)
     line_task = 0       # default: 0(not start)
+    
+    land = False        # default: False(not start)
     land_melody = False
     land_carna = False
     line_finish = False
@@ -162,24 +165,34 @@ def main():
     yaw_pid.initialize()
 
     while True:
+        print("--------------------------------------------")
+        battery_dis(drone)
+
         frame = frame_read.frame
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-        
-        dilation = LT.process_frame(frame)
-        binary01 = dilation // 255
-        pattern = LT.get_pattern(binary01)
-        text = "pattern: \n" + str(pattern[0]) + "\n" + str(pattern[1]) + "\n" + str(pattern[2])
-        print(text)
-        cv2.putText(frame, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
-        cv2.imshow("dilation", dilation)
-        cv2.namedWindow("dilation", 0)
-        cv2.resizeWindow("dilation", 800, 600)
-        state = ""
-        
+                
         markerCorners, markerIds, rejectedCandidates = cv2.aruco.detectMarkers(frame, dictionary, parameters=parameters)
-        frame, face_distance = detect_face(frame, face_objectPoints, intrinsic, distortion)
         x_update, y_update, z_update, yaw_update, angle_diff = 0, 0, 0, 0, 0
-        doll_name, confidence, frame = distinguish_doll(frame, device, model, doll_names, doll_colors)
+        
+        # Step 1-0 : detect face 
+        if not face1 or not face2 :
+            frame, face_distance = detect_face(frame, face_objectPoints, intrinsic, distortion)
+
+        # Step 2-0, 4-0 : detect doll 
+        if detect_doll : 
+            doll_name, confidence, frame = distinguish_doll(frame, device, model, doll_names, doll_colors)
+        else : 
+            doll_name, confidence = None, 0
+              
+        # Step 3-0 : line detect 
+        state = ""
+        if line_trace:
+            dilation = LT.process_frame(frame)
+            binary01 = dilation // 255
+            pattern = LT.get_pattern(binary01)
+            text = str(pattern[0]) + str(pattern[1]) + str(pattern[2])
+            print(f"pattern: \n{pattern[0]} \n{pattern[1]} \n{pattern[2]}")
+            cv2.putText(frame, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
         
         # Step 2-1: 偵測到doll =================================================================
         if doll_name is not None and confidence > 0.5:
@@ -241,13 +254,16 @@ def main():
                             continue
                         ## go up for line
                         line_trace = True
+                        detect_doll = False
                         stable_counter = 0 
                         drone.send_rc_control(0, 5, 30, 0)
                         time.sleep(1.5)
+                        continue 
                 
                 # Step 4: 追線完成 ====================================================================                 
                 elif line_finish and current_marker_id == 2: 
                     line_trace = False
+                    detect_doll = True 
                     print("追線完成！正在對準marker2!!!!!!!!!!!!!!!!!!!\n")
                     if z is None : ## slowly forward
                         for ii in range (1) :
@@ -279,6 +295,7 @@ def main():
                                 print("偵測到carna CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\n")
                                 land_carna = True
                         finish4 = True
+                        continue
                 # Step 5-1: 偵測 carna 或 melody =================================================================                 
                 elif finish4:
                     if land_carna:
@@ -288,6 +305,7 @@ def main():
                         drone.send_rc_control(0, 40, 0, 0) # 向前
                         time.sleep(2)
                         land = True
+                        continue
                               
                     if land_melody :
                         print("step 5_1 : MMMMMMMMMMMMMMMMMMMMMM!!!!!!!!!!!\n")
@@ -296,12 +314,14 @@ def main():
                         drone.send_rc_control(0, 40, 0, 0) # 向前
                         time.sleep(2)
                         land = True
+                        continue
                     
                     x_update = thres(x_pid.update(x_update, sleep=0))
                     y_update = thres(y_pid.update(y_update, sleep=0))
                     z_update = thres(z_pid.update(z_update, sleep=0))
                     yaw_update = thres(yaw_pid.update(yaw_update, sleep=0))
-
+                    drone.send_rc_control(int(x_update//1), int(z_update//2), int(y_update//1), int(yaw_update//1))
+                    
                 # Step 5-2: 偵測 marker id 並降落 =================================================================                 
                 elif land and current_marker_id == 3:
                     print("---------------------marker is 3333333333333333---------------------\n\n\n\n")
@@ -330,19 +350,15 @@ def main():
                         drone.land()
                         print("成功降落嗚呼！\n")
 
-                drone.send_rc_control(int(x_update//1), int(z_update//2), int(y_update//1), int(yaw_update//1))
                 # display x, y, z coordinates on the frame
                 # 無人機鏡頭偵測到的位置距離
                 cv2.putText(frame, "x = {:.3f}  y = {:.3f}  z = {:.3f}  yaw = {:.3f}".format(tvec[i][0][0], tvec[i][0][1], tvec[i][0][2], angle_diff), (10, 64), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
                 # 經過PID控制器調整後的位置
-                cv2.putText(frame, "x = {:.3f}  y = {:.3f}  z = {:.3f}  yaw = {:.3f}".format(x_update, y_update,z_update,yaw_update), (10, 128), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
+                cv2.putText(frame, "x = {:.3f}  y = {:.3f}  z = {:.3f}  yaw = {:.3f}".format(float(x_update), float(y_update), float(z_update), float(yaw_update)), (10, 128), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
                 
-                print("--------------------------------------------")
-                battery_dis(drone)
                 print("MarkerIDs: {}".format(markerIds))
                 print("tvec: {}||{}||{}||{}".format(tvec[i,0,0], tvec[i,0,1], tvec[i,0,2], angle_diff))
                 print("PID: {}||{}||{}||{}".format(PID_state["pid_x"],PID_state["pid_y"],PID_state["pid_z"],PID_state["pid_yaw"]))
-                print("--------------------------------------------")
 
         # Step 1-1: 偵測人臉1 ===============================================================
         if not face1 and drone.is_flying :
@@ -358,20 +374,20 @@ def main():
                 face1 = True
                 ## up 
                 drone.send_rc_control(0, 0, 50, 0)
-                time.sleep(2)
+                time.sleep(1.5)
                 ## forward 
                 drone.send_rc_control(0, 50, 0, 0)
-                time.sleep(0.5)
+                time.sleep(1)
                 ## down
                 drone.send_rc_control(0, 0, -50, 0)
-                time.sleep(2)
+                time.sleep(1.5)
             elif face_distance[2] >= face1_distance:
                 print("人臉距離太遠1，前進!!!!!!!!!!!!!!!!!!!!!!!\n")
                 x_update = thres(x_pid.update(x_update, sleep=0), max_speed)
                 y_update = thres(y_pid.update(y_update, sleep=0), max_speed)
                 z_update = thres(z_pid.update(z_update, sleep=0), max_speed)
                 yaw_update = 0
-                drone.send_rc_control(int(x_update / 2), int (z_update / 2), int(y_update / 2), int(yaw_update))
+                drone.send_rc_control(int(x_update / 2), int (z_update / 1.6), int(y_update / 2), int(yaw_update))
             elif face_distance[2] <= 0:
                 print("沒看到人臉1，向上!!!!!!!!!!!!!!!!!!!!!!!\n")
                 drone.send_rc_control(0, 0, 30, 0)
@@ -379,23 +395,30 @@ def main():
         #Step 1-2: 偵測人臉2 =================================================================
         elif face1 and not face2 and drone.is_flying :
             face2_distance = 70
+            max_height = 100
+            min_height = 20
+            down_or_up = 0      # default: 0(down), if is 1(up)
             
             x_update = face_distance[0]
             y_update = face_distance[1]
             z_update = face_distance[2]
             yaw_update = 0        
+            current_height = drone.get_height()
+            print(f"現在高度 = {current_height}")
+
             if face_distance[2] > 0 and face_distance[2] < face2_distance :
                 print("偵測到人臉2!!!!!!!!!!!!!!!!!!!!!!!\n")
                 face2 = True
+                detect_doll = True
                 ## down
                 drone.send_rc_control(0, 0, -50, 0)
-                time.sleep(1)
+                time.sleep(1.5)
                 ## forward 
                 drone.send_rc_control(0, 50, 0, 0)
-                time.sleep(0.5)
+                time.sleep(5)
                 ## up
                 drone.send_rc_control(0, 0, 50, 0)
-                time.sleep(1)
+                time.sleep(3)
             elif face_distance[2] >= face2_distance:
                 print("人臉2距離太遠，前進!!!!!!!!!!!!!!!!!!!!!!!\n")
                 x_update = thres(x_pid.update(x_update, sleep=0), max_speed)
@@ -404,9 +427,18 @@ def main():
                 yaw_update = 0
                 drone.send_rc_control(int(x_update / 2), int (z_update / 2), int(y_update / 2), int(yaw_update))
             elif face_distance[2] <= 0:
-                print("沒看到人臉2，向下!!!!!!!!!!!!!!!!!!!!!!!\n")
-                drone.send_rc_control(0, 0, -50, 0)
-                time.sleep(0.5)
+                if current_height > max_height:
+                    down_or_up = 0 # down
+                elif current_height < min_height:
+                    down_or_up = 1 # up
+                if down_or_up == 1: ## up
+                    print("沒看到人臉2，向上!!!!!!!!!!!!!!!!!!!!!!!\n")
+                    drone.send_rc_control(0, 0, 50, 0)
+                    time.sleep(0.5)
+                elif down_or_up == 0 : ## down
+                    print("沒看到人臉2，向下!!!!!!!!!!!!!!!!!!!\n")
+                    drone.send_rc_control(0, 0, -50, 0)
+                    time.sleep(0.5)
         #Step 3-a : line tracing melody(up first) =================================================================
         elif line_trace and drone.is_flying and line_path == 1 :
             line_distance = LT.determine_line_distance(frame)
@@ -571,11 +603,6 @@ def main():
             print("line tracing exception!!!!!!!!!!!!!!!!!!!!!!!\n")
             print("line_path: ", line_path)
             drone.send_rc_control(0, 0, 0, 0)
-        # just do nothing
-        else:
-            if drone.is_flying == True:
-                drone.send_rc_control(0, 0, 0, 0)
-                print("no command")
 
         text = "state: " + state
         cv2.putText(frame, text, (10, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
@@ -590,6 +617,8 @@ def main():
             drone.land()
             cv2.destroyAllWindows()
             break
+        print("--------------------------------------------")
+
 
 if __name__ == '__main__':
     main()
