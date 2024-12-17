@@ -256,7 +256,7 @@ def main():
                         task += 1
                         detect_doll = False
                         stable_counter = 0 
-                        drone.send_rc_control(0, 5, 30, 0)
+                        drone.send_rc_control(-5, 0, 30, 0)
                         time.sleep(1.5)
                 
                 # Step 4: 追線完成 ====================================================================                 
