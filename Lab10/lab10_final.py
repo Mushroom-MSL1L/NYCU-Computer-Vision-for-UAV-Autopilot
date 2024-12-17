@@ -602,6 +602,8 @@ def main():
             print("should be 1(melody) or 2(carna)\n")
             drone.send_rc_control(0, 0, 0, 0)
 
+        print("task: ", tasks[task])
+        print("line_path: ", line_path)
         text = "state: " + state
         cv2.putText(frame, text, (10, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
         print(text)
