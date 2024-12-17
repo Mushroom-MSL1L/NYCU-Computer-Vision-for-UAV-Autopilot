@@ -258,7 +258,6 @@ def main():
                         stable_counter = 0 
                         drone.send_rc_control(0, 5, 30, 0)
                         time.sleep(1.5)
-                        continue 
                 
                 # Step 4: 追線完成 ====================================================================                 
                 elif line_finish and current_marker_id == 2: 
@@ -295,18 +294,15 @@ def main():
                                 print("偵測到carna CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\n")
                                 land_carna = True
                         finish4 = True
-                        continue
                 # Step 5-1: 偵測 carna 或 melody =================================================================                 
-                elif finish4:
+                elif finish4 and land == False : 
                     if land_carna:
                         print("step 5_1 : CCCCCCCCCCCCCCCCCCCCCC!!!!!!!!!!!\n")
                         drone.send_rc_control(-25, 0, 0, 0) # 向左
                         time.sleep(2)
                         drone.send_rc_control(0, 40, 0, 0) # 向前
                         time.sleep(2)
-                        land = True
-                        continue
-                              
+                        land = True                              
                     if land_melody :
                         print("step 5_1 : MMMMMMMMMMMMMMMMMMMMMM!!!!!!!!!!!\n")
                         drone.send_rc_control(25, 0, 0, 0) # 向右
@@ -314,7 +310,6 @@ def main():
                         drone.send_rc_control(0, 40, 0, 0) # 向前
                         time.sleep(2)
                         land = True
-                        continue
                     
                     x_update = thres(x_pid.update(x_update, sleep=0))
                     y_update = thres(y_pid.update(y_update, sleep=0))
