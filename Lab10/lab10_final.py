@@ -417,6 +417,9 @@ def main():
                 ## up
                 drone.send_rc_control(0, 0, 50, 0)
                 time.sleep(3)
+                ## backward
+                drone.send_rc_control(0, -50, 0, 0)
+                time.sleep(1)
             elif face_distance[2] >= face2_distance:
                 print("人臉2距離太遠，前進!!!!!!!!!!!!!!!!!!!!!!!\n")
                 x_update = thres(x_pid.update(x_update, sleep=0), max_speed)
