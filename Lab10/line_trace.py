@@ -2,6 +2,11 @@ import numpy as np
 import time
 import cv2 
 
+GO_VERTICAL_UP = 0
+GO_VERTICAL_DOWN = 1
+GO_HORIZONTAL_RIGHT = 2
+GO_HORIZONTAL_LEFT = 3
+
 class LineTrace:
     def __init__(self):
         self.threshold = 100     # range 0~255, for 黑白圖片
@@ -11,6 +16,7 @@ class LineTrace:
         self.sleep_time = 0.1        # default 0.1, for line trace control
         self.distance_rate = 0.5     # range 0~1, for line trace distance adjustment
         self.distance_durance = 0.1  # range 0~1, for line trace distance adjustment
+        self.go_direction = GO_VERTICAL_UP        # for line trace distance adjustment
 
     def process_frame(self, frame):
         temp = frame.copy()
@@ -35,6 +41,37 @@ class LineTrace:
                                             w * width_step : (w + 1) * width_step]) 
                                 < thres)
         return pattern
+    
+    def draw_pattern(self, img, pattern):
+        pattern_size = pattern.shape
+        annotated_img = img.copy()
+        height = img.shape[0]
+        width = img.shape[1]
+        
+        height_step = height // pattern_size[0]
+        width_step = width // pattern_size[1]
+        
+        for h in range(pattern_size[0]):
+            for w in range(pattern_size[1]):
+                text = f"({h},{w})"
+                color = (0, 255, 0) if pattern[h, w] == 1 else (0, 0, 255)
+                
+                x = int(w * width_step + width_step / 2)
+                y = int(h * height_step + height_step / 2)
+                
+                cv2.putText(
+                    annotated_img, 
+                    text, 
+                    (x - 20, y + 5),  # 調整文字位置
+                    cv2.FONT_HERSHEY_SIMPLEX, 
+                    1,  # 字體大小
+                    color, 
+                    1,  # 線條厚度
+                    cv2.LINE_AA
+                )
+        
+        return annotated_img
+
 
     def right_empty(self, pattern):
         return np.sum(pattern[:, 2]) == 0
@@ -63,6 +100,18 @@ class LineTrace:
                                              [1, 1, 1]])).all()
         return match1 or match2 or match3 or match4 or match5        
 
+    def possible_T (self, pattern33) :
+        T1 = np.array([[1, 0, 0],
+                       [1, 1, 1], 
+                       [0, 0, 0]])
+        T2 = np.array([[0, 1, 0],
+                       [1, 1, 1],
+                       [0, 0, 0]])
+        T3 = np.array([[0, 0, 1],
+                       [1, 1, 1],
+                       [0, 0, 0]])
+        return np.all(np.equal(pattern33, T1)) or np.all(np.equal(pattern33, T2)) or np.all(np.equal(pattern33, T3))
+
     def determine_line_distance(self, img):
         distance_rate = self.distance_rate
         distance_tolerance = self.distance_durance
@@ -72,11 +121,18 @@ class LineTrace:
         
         height = img.shape[0]
         width = img.shape[1]
+        height_step = height // 3
+        width_step = width // 3
+        grid_unit = height_step * width_step
+
         upper_rate = min(1, distance_rate + distance_tolerance)
         lower_rate = max(0, distance_rate - distance_tolerance)
-        upper_thres = (1 - upper_rate) * height * width
-        lower_thres = (1 - lower_rate) * height * width
-        current_sum = np.sum(img)
+        upper_thres = (1 - upper_rate) * grid_unit
+        lower_thres = (1 - lower_rate) * grid_unit
+        
+        current_sum = (np.sum(img[1 * height_step : 2 * height_step, 
+                                    1 * width_step : 2 * width_step])) # sum of white
+        current_sum = grid_unit - current_sum # change to sum of black
         
         if current_sum > upper_thres:
             return -1 # too close
@@ -85,6 +141,7 @@ class LineTrace:
         return 0 # don't adjust
 
     def vertical_up_line_tracing (self, drone, pattern, distance=0):
+        self.go_direction = GO_VERTICAL_UP
         move_speed, sleep_time = self.move_speed, self.sleep_time
         
         pattern3 = np.logical_or.reduce([pattern[0], pattern[1], pattern[2]])
@@ -101,6 +158,13 @@ class LineTrace:
             drone.send_rc_control(0, -absolute_speed, 0, 0)
             time.sleep(sleep_time)
             return "ver : too close"
+        
+        ### begin of possible T 
+        if self.upper_T_pattern(pattern) :
+            drone.send_rc_control(0, adjust_distance, move_speed, 0)
+            time.sleep(sleep_time)
+            return "ver : up"
+        ### end of possible T
         if np.all(np.equal(pattern3, [0, 1, 0])):
             drone.send_rc_control(0, adjust_distance, move_speed, 0)
             time.sleep(sleep_time)
@@ -131,6 +195,7 @@ class LineTrace:
             return "ver : 1, 0, 1"
 
     def vertical_down_line_tracing (self, drone, pattern, distance=0):
+        self.go_direction = GO_VERTICAL_DOWN
         move_speed, sleep_time = -self.move_speed, self.sleep_time
         
         pattern3 = np.logical_or.reduce([pattern[0], pattern[1], pattern[2]])
@@ -142,7 +207,14 @@ class LineTrace:
         # distance > 0 : means too far, move forward
         absolute_speed = abs(move_speed)
         adjust_distance = absolute_speed * distance
-        if np.equal(pattern, np.array([[1, 1, 1], [1, 1, 1], [1, 1, 1]])).all() :
+        ### begin of possible T 
+        if self.upper_T_pattern(pattern) :
+            drone.send_rc_control(0, adjust_distance, move_speed, 0)
+            time.sleep(sleep_time)
+            return "ver : down"
+        ### end of possible T
+
+        if np.all(np.equal(pattern, np.array([[1, 1, 1], [1, 1, 1], [1, 1, 1]]))) :
             ## too close
             drone.send_rc_control(0, -absolute_speed, 0, 0)
             time.sleep(sleep_time)
@@ -177,6 +249,7 @@ class LineTrace:
             return "ver : 1, 0, 1"
 
     def horizontal_right_line_tracing(self, drone, pattern, distance=0):
+        self.go_direction = GO_HORIZONTAL_RIGHT
         move_speed, sleep_time = self.move_speed, self.sleep_time
         
         pattern3 = np.logical_or.reduce([pattern[0], pattern[1], pattern[2]], axis=1)
@@ -184,11 +257,18 @@ class LineTrace:
         
         absolute_speed = abs(move_speed)
         adjust_distance = absolute_speed * distance
-        if np.equal(pattern, np.array([[1, 1, 1], [1, 1, 1], [1, 1, 1]])).all() :
+        ### begin of possible T 
+        if self.upper_T_pattern(pattern) :
+            drone.send_rc_control(move_speed, adjust_distance, 0, 0)
+            time.sleep(sleep_time)
+            return "hor r : forward to right"
+        ### end of possible T
+
+        if np.all(np.equal(pattern, np.array([[1, 1, 1], [1, 1, 1], [1, 1, 1]]))) :
             ## too close
             drone.send_rc_control(0, -absolute_speed, 0, 0)
             time.sleep(sleep_time)
-            return "ver : too close"
+            return "hor r : too close"
 
         # x, z, y
         if np.all(np.equal(pattern3, [0, 1, 0])):
@@ -221,6 +301,7 @@ class LineTrace:
             return "hor r : 1, 0, 1"
 
     def horizontal_left_line_tracing(self, drone, pattern, distance=0):
+        self.go_direction = GO_HORIZONTAL_LEFT
         move_speed, sleep_time = self.move_speed, self.sleep_time
         
         pattern3 = np.logical_or.reduce([pattern[0], pattern[1], pattern[2]], axis=1)
@@ -228,11 +309,18 @@ class LineTrace:
 
         absolute_speed = abs(move_speed)
         adjust_distance = absolute_speed * distance
-        if np.equal(pattern, np.array([[1, 1, 1], [1, 1, 1], [1, 1, 1]])).all() :
+        ### begin of possible T
+        if self.upper_T_pattern(pattern) :
+            drone.send_rc_control(-move_speed, adjust_distance, 0, 0)
+            time.sleep(sleep_time)
+            return "hor l : forward to left"
+        ### end of possible T
+        
+        if np.all(np.equal(pattern, np.array([[1, 1, 1], [1, 1, 1], [1, 1, 1]]))) :
             ## too close
             drone.send_rc_control(0, -absolute_speed, 0, 0)
             time.sleep(sleep_time)
-            return "ver : too close"
+            return "hor l : too close"
 
         # x, z, y
         if np.all(np.equal(pattern3, [0, 1, 0])):

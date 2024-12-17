@@ -190,6 +190,7 @@ def main():
             dilation = LT.process_frame(frame)
             binary01 = dilation // 255
             pattern = LT.get_pattern(binary01)
+            frame = LT.draw_pattern(frame, pattern)
             text = str(pattern[0]) + str(pattern[1]) + str(pattern[2])
             print(f"pattern: \n{pattern[0]} \n{pattern[1]} \n{pattern[2]}")
             cv2.putText(frame, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
@@ -372,7 +373,7 @@ def main():
                 time.sleep(1.5)
                 ## forward 
                 drone.send_rc_control(0, 50, 0, 0)
-                time.sleep(1)
+                time.sleep(0.8)
                 ## down
                 drone.send_rc_control(0, 0, -50, 0)
                 time.sleep(1.5)
@@ -428,11 +429,11 @@ def main():
                     down_or_up = 1 # up
                 if down_or_up == 1: ## up
                     print("沒看到人臉2，向上!!!!!!!!!!!!!!!!!!!!!!!\n")
-                    drone.send_rc_control(0, 0, 50, 0)
+                    drone.send_rc_control(0, 0, 40, 0)
                     time.sleep(0.5)
                 elif down_or_up == 0 : ## down
                     print("沒看到人臉2，向下!!!!!!!!!!!!!!!!!!!\n")
-                    drone.send_rc_control(0, 0, -50, 0)
+                    drone.send_rc_control(0, 0, -40, 0)
                     time.sleep(0.5)
         #Step 3-a : line tracing melody(up first) =================================================================
         elif line_trace and drone.is_flying and line_path == 1 :
