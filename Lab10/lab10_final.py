@@ -361,13 +361,18 @@ def main():
         # Step 1-1: 偵測人臉1 ===============================================================
         if task == tasks.index("face1") and drone.is_flying :
             face1_distance = 70
+            too_far = 200
             
             x_update = face_distance[0]
             y_update = face_distance[1]
             z_update = face_distance[2]
             yaw_update = 0
             
-            if face_distance[2] > 0 and face_distance[2] < face1_distance :
+            if face_distance[2] <= 0 or face_distance[2] >= too_far:
+                print("沒看到人臉1，向上!!!!!!!!!!!!!!!!!!!!!!!\n")
+                drone.send_rc_control(0, 0, 30, 0)
+                time.sleep(0.5)
+            elif face_distance[2] > 0 and face_distance[2] < face1_distance :
                 print("偵測到人臉1!!!!!!!!!!!!!!!!!!!!!!!\n")
                 task += 1
                 ## up 
@@ -379,17 +384,13 @@ def main():
                 ## down
                 drone.send_rc_control(0, 0, -50, 0)
                 time.sleep(1.5)
-            elif face_distance[2] >= face1_distance:
+            elif face_distance[2] >= face1_distance :
                 print("人臉距離太遠1，前進!!!!!!!!!!!!!!!!!!!!!!!\n")
                 x_update = thres(x_pid.update(x_update, sleep=0), max_speed)
                 y_update = thres(y_pid.update(y_update, sleep=0), max_speed)
                 z_update = thres(z_pid.update(z_update, sleep=0), max_speed)
                 yaw_update = 0
                 drone.send_rc_control(int(x_update / 2), int (z_update / 1.6), int(y_update / 2), int(yaw_update))
-            elif face_distance[2] <= 0:
-                print("沒看到人臉1，向上!!!!!!!!!!!!!!!!!!!!!!!\n")
-                drone.send_rc_control(0, 0, 30, 0)
-                time.sleep(0.5)
         #Step 1-2: 偵測人臉2 =================================================================
         elif task == tasks.index("face2") and drone.is_flying :
             face2_distance = 70
